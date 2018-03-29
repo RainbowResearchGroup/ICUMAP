@@ -78,10 +78,11 @@ If you extracted data using ICUMAP's MetaVision module you may use the same ```p
 
 Otherwise, produce a CSV with the following columns:
 
-| Blank | Parameter Name | 
-|-------|----------------|
+| Parameter Id | Parameter Name | Data Type (optional) |
+|--------------|----------------|----------------------| 
 
-TODO: Are any other columns needed here?
+Data type should be "cardinal" for cardinal data, or start with "icm-" if it refers to an ICM code.
+Otherwise, this may be blank.
 
 ### 2. Configure
 ICUMAP t-SNE is configured by setting properties in a Python configuration file.
