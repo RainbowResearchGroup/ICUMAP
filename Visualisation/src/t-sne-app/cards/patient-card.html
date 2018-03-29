@@ -1,0 +1,143 @@
+<link rel="import" href="../../../bower_components/polymer/polymer.html">
+<link rel="import" href="../../../bower_components/paper-card/paper-card.html">
+<link rel="import" href="../../../bower_components/iron-flex-layout/iron-flex-layout-classes.html">
+<link rel="import" href="../../../bower_components/paper-styles/color.html">
+<link rel="import" href="similarity-circle.html">
+
+<dom-module id="patient-card">
+    <template>
+        <style include="iron-flex iron-flex-alignment"></style>
+        <style>
+            :host {
+                display: block;
+                padding: 8px;
+                min-width: 207px;
+                max-width: 207px;
+                min-height: calc(1.1 * 9em);
+                max-height: calc(1.1 * 9em);
+            }
+
+            paper-card {
+                transition:
+                        box-shadow 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                        background-color 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+                padding: 5px;
+                width: 100%;
+                min-height: calc(1.1 * 9em);
+                max-height: calc(1.1 * 9em);
+                overflow: hidden;
+            }
+
+            paper-card[highlighted] {
+                background-color: #ddeeff;
+            }
+
+            .sub-header {
+                font-weight: 600;
+            }
+
+            div {
+                font-family: Arial, sans-serif;
+                font-weight: 500;
+                color: #222222;
+                text-overflow: ellipsis;
+                overflow: hidden;
+            }
+
+            #name {
+                font-weight: 700;
+            }
+
+            #card-body {
+                margin-top: 10px;
+                font-size: 14px;
+            }
+
+            #card-body > div {
+                margin: 2px 0;
+            }
+
+            similarity-circle {
+                width: 1em;
+                height: 1em;
+                margin-right: 5px;
+            }
+
+            .death-indicator[died] {
+                color: var(--paper-red-500);
+            }
+
+            .death-indicator:not([died]) {
+                color: var(--paper-green-500);
+            }
+        </style>
+
+        <paper-card id="card" elevation="1" highlighted$="[[highlighted]]" hidden$="[[!patient]]">
+            <div id="card-header" class="layout horizontal center" hidden$="[[!patient]]">
+                <similarity-circle dissimilarity="[[patient.dissimilarity]]"
+                                   hidden$="[[!exists(patient.dissimilarity)]]"></similarity-circle>
+                <div id="name" class="flex">[[patient.patientId]]&nbsp;</div>
+            </div>
+
+            <div id="card-body">
+                <div class="layout horizontal" hidden$="[[!isHistorical(patient)]]">
+                    <div class="sub-header">LOS:&nbsp;</div>
+                    <div>[[losText(patient)]]</div>
+
+                    <div class="flex"></div>
+
+                    <div class="death-indicator" died$="[[patient.attributes.died]]">
+                        [[diedText(patient.attributes.died)]]
+                    </div>
+                </div>
+
+                <!-- TODO: Populate with site-specific information -->
+            </div>
+        </paper-card>
+    </template>
+    <script>
+        Polymer({
+            is: 'patient-card',
+
+            properties: {
+                patient: {
+                    type: Object,
+                    value: null
+                },
+                highlighted: {
+                    type: Boolean,
+                }
+            },
+
+            losText(patient) {
+                if (!this.exists(patient)) return "";
+
+                let round = x => Math.round(x);
+
+                let durationMS = patient.attributes["dischargeDate"] - patient.attributes["admissionDate"];
+                let durationHours = durationMS / (1000 * 60 * 60);
+                if (durationHours <= 72) return round(durationHours) + " hours";
+                let durationDays = durationHours / 24;
+                if (durationDays <= 28) return round(durationDays) + " days";
+                let durationWeeks = durationDays / 7;
+                return round(durationWeeks) + " weeks";
+            },
+
+            diedText(died) {
+                return died ? "Died" : "Discharged";
+            },
+
+            exists(patient) {
+                return patient !== undefined && patient !== null;
+            },
+
+            isHistorical(patient) {
+                return this.hasDischargeDate(patient);
+            },
+
+            hasDischargeDate(patient) {
+                return this.exists(patient) && patient.attributes.hasOwnProperty("dischargeDate");
+            }
+        });
+    </script>
+</dom-module>

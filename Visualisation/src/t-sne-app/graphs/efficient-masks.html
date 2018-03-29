@@ -1,0 +1,67 @@
+<link rel="import" href="../../../bower_components/polymer/polymer.html">
+<link rel="import" href="mask-graph.html">
+
+<dom-module id="efficient-masks">
+    <template>
+        <style>
+            :host {
+                display: block;
+            }
+
+            mask-graph {
+                width: 100%;
+                height: 100%;
+                opacity: 0;
+                position: absolute;
+                will-change: opacity;
+            }
+        </style>
+
+        <template is="dom-repeat" items="[[masks]]" as="mask">
+            <mask-graph points="[[points]]" features="[[features]]" ranker="[[ranker]]" progress="[[progress]]"
+                highlight-feature="[[mask.name]]" id="[[mask.id]]" tile-size="[[tileSize]]"></mask-graph>
+        </template>
+    </template>
+    <script>
+        Polymer({
+            is: 'efficient-masks',
+
+            properties: {
+                points: Array,
+                features: {
+                    type: Object,
+                    observer: "featuresChanged"
+                },
+                highlightFeature: {
+                    type: String,
+                    observer: "highlightChanged"
+                },
+                progress: Object,
+                tileSize: Number,
+                ranker: Object
+            },
+
+            featuresChanged() {
+                let x = [];
+                for (let key in this.features) {
+                    x.push({name: key, id: `mask${this.features[key]}`});
+                }
+                this.masks = x;
+            },
+
+            getId(key) {
+                return `#mask${this.features[key]}`;
+            },
+
+            highlightChanged() {
+                for (let key in this.features) {
+                    this.$$(this.getId(key)).style.opacity = 0;
+                }
+
+                if (this.highlightFeature !== null) {
+                    this.$$(this.getId(this.highlightFeature)).style.opacity = 1;
+                }
+            }
+        });
+    </script>
+</dom-module>

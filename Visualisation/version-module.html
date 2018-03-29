@@ -1,0 +1,38 @@
+<link rel="import" href="bower_components/polymer/polymer.html">
+<link rel="import" href="bower_components/iron-ajax/iron-ajax.html">
+<link rel="import" href="bower_components/paper-styles/color.html">
+<link rel="import" href="bower_components/paper-styles/typography.html">
+
+<dom-module id="version-module">
+    <template>
+        <style>
+            :host {
+                display: block;
+            }
+
+            div {
+                color: var(--paper-grey-400);
+                @apply(--paper-font-body1);
+                font-size: 11px;
+            }
+        </style>
+
+        <div id="versionContainer">{{version.hash}} {{version.at}} {{version.date}}</div>
+        <iron-ajax auto url="./deploy_stats.json" handle-as="json" on-response="versionLoaded"></iron-ajax>
+    </template>
+    <script>
+        Polymer({
+            is: 'version-module',
+
+            versionLoaded(request) {
+                let response = request.detail.response;
+                this.version = {
+                    hash: response.hash === "develop" ?
+                        "develop" : `v${response.hash.substring(0, 6).toUpperCase()}`,
+                    date: response.date.substring(0, 16),
+                    at: response.hash === "develop" ? "" : "at"
+                }
+            }
+        });
+    </script>
+</dom-module>

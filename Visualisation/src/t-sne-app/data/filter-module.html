@@ -1,0 +1,57 @@
+<link rel="import" href="../../../bower_components/polymer/polymer.html">
+
+<dom-module id="filter-module">
+    <template>
+
+    </template>
+    <script>
+        Polymer({
+            is: 'filter-module',
+
+            properties: {
+                points: {
+                    type: Array,
+                    observer: "filterUpdate",
+                },
+                filter: {
+                    type: Object, /* which has an apply method */
+                    observer: "filterUpdate"
+                },
+                hiddenPatients: {
+                    type: Array,
+                    notify: true
+                }
+            },
+
+            filterUpdate() {
+                try {
+                    let apply = this.filter.apply;
+                    if (typeof this.filter.apply !== "function") {
+                        apply = eval(this.filter.apply);
+                    }
+
+                    if (this.points === undefined || !Array.isArray(this.points) || this.points.length === 0 ||
+                        (this.filter !== undefined && !(typeof apply(this.points[0]) === "boolean"))) return;
+
+                    if (this.filter === undefined) {
+                        this.hiddenPatients = [];
+                        return;
+                    }
+
+                    this.hiddenPatients = this.points
+                        .distinctBy(p => p.patientId)
+                        .filter(p => {
+                            if (p.patientId === 1867) {
+                                console.log("filter", p, apply(p))
+                            }
+
+                            return !apply(p)
+                        })
+                        .map(p => p.patientId);
+                } catch (e) {
+
+                }
+            }
+        });
+    </script>
+</dom-module>

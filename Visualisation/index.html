@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=1500, height=800, initial-scale=1, user-scalable=yes">
+
+        <title>ICUMAP</title>
+
+        <link rel="manifest" href="/manifest.json">
+        <link rel="import" href="bower_components/polymer/polymer.html">
+
+        <link rel="import" href="./version-module.html">
+
+        <link rel="import" href="bower_components/iron-ajax/iron-ajax.html">
+
+        <link rel="import" href="src/t-sne-app/tsne-app.html">
+        <link rel="import" href="src/t-sne-app/data/data-module.html">
+        <link rel="import" href="src/t-sne-app/graphs/mask-graph.html">
+
+        <script src="bower_components/webcomponentsjs/webcomponents-lite.js"></script>
+        <script src="src/functional-array-extensions.js"></script>
+        <script src="src/t-sne-app/URLParameters.js"></script>
+
+        <style>
+            html, body {
+                margin: 0;
+                width: 100%;
+                height: 100%;
+                overflow: hidden;
+            }
+
+            tsne-app {
+                width: 100%;
+                height: 100%;
+            }
+
+            version-module {
+                position: absolute;
+                right: 5px;
+                text-align: right;
+            }
+        </style>
+    </head>
+    <body>
+        <version-module></version-module>
+
+        <tsne-app id="app"></tsne-app>
+    </body>
+<script>
+    let defaultLayout = "";
+    let defaultAttributes = "attributes.json";
+
+    let app = document.getElementById("app");
+
+    app.setAttribute("similarity", URLParameters.get("similarity"));
+    app.setAttribute("cloud", URLParameters.get("cloud"));
+    app.setAttribute("legend", URLParameters.get("legend"));
+
+    let layout = URLParameters.get("layout");
+    app.setAttribute("layout", layout !== null ? layout : defaultLayout);
+
+    let attributes = URLParameters.get("attributes");
+    app.setAttribute("attributes-file", attributes !== null ? attributes : defaultAttributes);
+
+    let filterRules = URLParameters.get("filterRules");
+    if (filterRules !== null) app.setAttribute("filter-file", filterRules);
+
+    let centered = URLParameters.get("centered");
+    if (centered !== null && centered !== "") app.setAttribute("centered", centered);
+
+    let baseline = URLParameters.get("baseline");
+    if (baseline !== null && baseline !== "") app.setAttribute("baseline", baseline);
+
+    let lockable = URLParameters.get("lockable");
+    if (lockable !== null && lockable !== "") app.setAttribute("lockable", lockable);
+
+    let cardinalDistance = URLParameters.get("cardinalDistance");
+    if (cardinalDistance !== null && cardinalDistance !== "")
+        app.setAttribute("input-cardinal-distance", cardinalDistance);
+</script>
+</html>

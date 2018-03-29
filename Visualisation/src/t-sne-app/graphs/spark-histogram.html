@@ -1,0 +1,237 @@
+<link rel="import" href="../../../bower_components/polymer/polymer.html">
+<link rel="import" href="../../../bower_components/paper-styles/color.html">
+
+<dom-module id="spark-histogram">
+    <template>
+        <style>
+            :host {
+                display: block;
+            }
+
+            svg {
+                position: absolute;
+                width: 100%;
+                height: 100%;
+                transition: transform 0.8s;
+                transition-delay: 0.001s;
+                pointer-events: none;
+            }
+
+            #histogram {
+                pointer-events: auto;
+            }
+
+            #hist {
+                fill: var(--histogram-bin-color, var(--paper-blue-500));
+                opacity: var(--histogram-bin-opacity, 1.0);
+            }
+
+            .primary-highlight {
+                fill: var(--histogram-highlight-color, var(--paper-red-500));
+            }
+
+            .secondary-highlight {
+                fill: var(--histogram-secondary-highlight-color, var(--paper-blue-500));
+            }
+        </style>
+
+        <svg id="histogram">
+            <g id="hist" shape-rendering="crispEdges"></g>
+        </svg>
+
+        <template is="dom-repeat" items="[[secondaryValues]]" index-as="i">
+            <svg class="secondary">
+                <rect id="secondaryLine[[i]]" x="-0" y="0" width="0.5" height="100%" class="secondary-highlight"></rect>
+                <circle id="secondaryCircle[[i]]" cx="-0" r="1.5" class="secondary-highlight"></circle>
+            </svg>
+        </template>
+
+        <svg overflow="visible">
+            <rect id="highlightLine" x="-0" y="0" width="0.5" height="100%" opacity="0" class="primary-highlight"></rect>
+            <circle id="highlightCircle" cx="-0" r="1.5" opacity="0" class="primary-highlight"></circle>
+        </svg>
+    </template>
+    <script src="../../../bower_components/d3/d3.min.js"></script>
+    <script>
+        Polymer({
+            is: 'spark-histogram',
+
+            properties: {
+                values: {
+                    type: Array,
+                    observer: "valuesChanged"
+                },
+                binCount: {
+                    type: Number,
+                    observer: "valuesChanged",
+                    value: 100
+                },
+                highlightValue: {
+                    type: Number,
+                    notify: true,
+                    observer: "highlightValueChanged"
+                },
+                secondaryValues: {
+                    type: Array/*[Number]*/,
+                    observer: "secondaryValuesChanged"
+                }
+            },
+
+            attached() {
+                 this.createHistogram();
+            },
+
+            valuesChanged() {
+                if (this.values === undefined || this.binCount === undefined) return;
+
+                this.values = this.values.sortNumeric();
+                this.validMin = this.values[Math.floor(this.values.length * 0.015)];
+                this.validMax = this.values[Math.floor(this.values.length * 0.985 - 1)];
+
+                let interval = (this.validMax - this.validMin) / this.binCount;
+                this.binForValue = value => Math.floor((value - this.validMin) / interval);
+                this.valueForBin = bin => interval * bin + this.validMin;
+
+                this.bins = this.values
+                    .filter(v => v >= this.validMin && v <= this.validMax)
+                    .groupBy(this.binForValue, l => l.length);
+
+                if (this.offsetWidth > 0) {
+                    this.createHistogram();
+                }
+            },
+
+            highlightValueChanged() {
+                if (this.highlightValue === "") this.highlightValue = undefined;
+
+                this.updateHighlighter(
+                    this.highlightValue, this.$.highlightLine, this.$.highlightCircle, !this.mousing);
+
+                if (this.highlightValue === undefined) {
+                    this.$.histogram.style.transform = "scaleX(1)";
+                    return;
+                }
+
+                if (this.highlightValue > this.validMax) {
+                    this.$.histogram.style.transform =
+                        `scaleX(${(this.validMax - this.validMin) / (this.highlightValue - this.validMin)})`;
+                    this.$.histogram.style.transformOrigin = "0 50%"
+                } else if (this.highlightValue < this.validMin) {
+                    this.$.histogram.style.transform =
+                        `scaleX(${(this.validMax - this.validMin) / (this.validMax - this.highlightValue)})`;
+                    this.$.histogram.style.transformOrigin = "100% 50%"
+                } else {
+                    this.$.histogram.style.transform = "scaleX(1)";
+                }
+            },
+
+            secondaryValuesChanged() {
+                if (this.secondaryValues === undefined || this.secondaryValues === null) return;
+
+                // Need to micro-task in order to give the browser a chance to update the template first.
+                window.requestAnimationFrame(() => this.secondaryValues.forEach((p, i) => {
+                    this.updateHighlighter(p, this.$$(`#secondaryLine${i}`), this.$$(`#secondaryCircle${i}`), false);
+                }));
+            },
+
+            updateHighlighter(value, line, circle, transitions = true) {
+                if (value === undefined || value === null || isNaN(value)) {
+                    d3.select(line).attr("opacity", 0);
+                    d3.select(circle).attr("opacity", 0);
+                    return;
+                }
+
+                d3.select(line).attr("opacity", 1);
+                d3.select(circle).attr("opacity", 1);
+
+                let bin = this.binForValue(value);
+                let interval = (this.validMax - this.validMin) / this.binCount;
+
+                let mouseX = (value - this.validMin) / interval;
+                let x = Math.max(Math.min(this.xScale(mouseX), this.w), 0);
+
+                let binPair = this.bins.find(b => b[0] === String(bin));
+                let y = this.h - 5;
+                if (binPair !== null) y = this.yScale(binPair[1]);
+
+                if (transitions && this.lastHighlightValue === undefined) {
+                    d3.select(line)
+                        .transition().duration(800).delay(0).ease(d3.easeQuadOut)
+                        .attr("x", x);
+                    d3.select(circle)
+                        .transition().duration(800).delay(0).ease(d3.easeQuadOut)
+                        .attr("cx", x + 0.25).attr("cy", y - 0.5);
+                    // Note: running with a delay of 0 (micro-task precision) so that the animation only starts once
+                    // other logic associated with setting this value has completed. Otherwise, the start of the
+                    // animation would be truncated.
+                } else {
+                    d3.select(line).attr("x", x);
+                    d3.select(circle).attr("cx", x + 0.25).attr("cy", y - 0.5);
+                }
+            },
+
+            createHistogram() {
+                this.updatedThisFrame = false; // Used by mousemove to ensure only one such event is handled per frame
+                d3.select(this.$.histogram)
+                    .on("mouseenter", () => {
+                        this.mousing = true;
+                        this.lastHighlightValue = this.highlightValue
+                    })
+                    .on("mousemove", () => {
+                        if (!this.updatedThisFrame) {
+                            let x = d3.mouse(d3.select(this.$.histogram).node())[0];
+                            let nextHighlightValue = Math.floor(10 * this.valueForBin(this.inverseXScale(x + 1))) / 10;
+                            if (this.validMax - this.validMin >= 10) {
+                                nextHighlightValue = Math.round(nextHighlightValue);
+                            }
+                            this.highlightValue = nextHighlightValue;
+                            this.updatedThisFrame = true;
+                        }
+
+                        window.requestAnimationFrame(() => {
+                            this.updatedThisFrame = false;
+                        });
+                    })
+                    .on("mouseleave", () => {
+                        this.mousing = false;
+                        this.highlightValue = this.lastHighlightValue;
+                        this.lastHighlightValue = undefined;
+                    })
+                    .on("mousedown", () => this.$.highlightCircle.setAttribute("r", 3))
+                    .on("mouseup", () => {
+                        this.$.highlightCircle.setAttribute("r", 1.5);
+                        this.lastHighlightValue = this.highlightValue;
+                    });
+
+                this.w = this.offsetWidth;
+                this.h = this.offsetHeight;
+
+                this.xScale = d3
+                    .scaleLinear()
+                    .domain([0, this.binCount - 1])
+                    .range([0, (this.binCount - 1) / this.binCount * this.w]);
+                this.inverseXScale = d3
+                    .scaleLinear()
+                    .domain([0, (this.binCount - 1) / this.binCount * this.w])
+                    .range([0, this.binCount - 1]);
+                this.yScale = d3
+                    .scaleLinear()
+                    .domain([0, d3.max(this.bins.map(p => p[1]))])
+                    .range([this.h - 5, 1]);
+
+                let histogram = d3
+                    .select(this.$.histogram)
+                    .select("#hist")
+                    .selectAll("rect")
+                    .data(this.bins, p => p);
+                histogram.enter()
+                    .append("rect")
+                    .attr("x", p => this.xScale(Number(p[0])))
+                    .attr("y", p => this.yScale(p[1]))
+                    .attr("width", p => this.w / this.binCount)
+                    .attr("height", p => 0.5 + (this.h - 5) - this.yScale(p[1]));
+                histogram.exit().remove();
+            }
+        });
+    </script>
+</dom-module>

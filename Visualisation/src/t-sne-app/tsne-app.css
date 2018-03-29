@@ -1,0 +1,204 @@
+:host {
+    display: block;
+    width: 100%;
+    height: 100%;
+    --app-accent-color: var(--paper-purple-500);
+    --side-bar-width: 404px;
+}
+
+#showFiltersContainer {
+    position: fixed;
+    top: 5px;
+    left: 10px;
+}
+
+#showFiltersButton[is-filtering], #showFiltersLabel {
+    color: var(--app-accent-color);
+}
+
+#showFiltersLabel {
+    cursor: pointer;
+    margin-top: 2px;
+}
+
+filter-drawer {
+    z-index: 100;
+    --filter-draw-width: 450px;
+}
+
+div, paper-checkbox {
+    font-family: 'Arial', sans-serif;
+    font-size: 14px;
+    font-weight: 400;
+    -webkit-font-smoothing: antialiased;
+    --paper-checkbox-checked-color: var(--app-accent-color, --paper-purple-500);
+}
+
+#tsne-root-div {
+    height: 100%;
+    overflow: hidden;
+}
+
+#appContainer {
+    opacity: 0;
+    margin: 0;
+}
+
+#svgHolder {
+    position: relative;
+    margin-left: 8px;
+    margin-top: 0;
+}
+
+*[visibility="hidden"] {
+    visibility: hidden;
+}
+
+*[display="hidden"] {
+    display: none;
+    visibility: hidden;
+    max-height: 0;
+    height: 0;
+    min-height: 0;
+}
+
+#svgTableHolder {
+    margin: auto 16px;
+}
+
+line-graph, mask-graph, efficient-masks {
+    width: 100%;
+    max-height: 100%;
+}
+
+efficient-masks, #foregroundLineGraph {
+    position: absolute;
+    top: 0;
+}
+
+#background-line-graph {
+    pointer-events: none;
+}
+
+efficient-masks {
+    pointer-events: none;
+    height: 100%;
+}
+
+/* Force the spinner buttons to always be displayed in Chrome */
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button {
+    opacity: 1;
+    margin-left: 2px;
+}
+
+input[type=number] {
+    padding-top: 2px;
+    padding-right: 2px;
+}
+
+paper-checkbox {
+    margin: 2px 5px;
+}
+
+#nearestCountInput {
+    max-width: 40px;
+    text-align: right;
+    margin-left: -5px;
+}
+
+#showNearestExtendedLabel {
+    cursor: pointer;
+}
+
+#patientIdLabel, #timeStepLabel {
+    width: 192px;
+    padding: 2px 5px;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+}
+
+#patientIdInput, #timeStepInput {
+    min-width: 178px;
+    margin: 2px 0 2px 5px;
+    text-align: right;
+}
+
+#highlightedPatientIdHolder, #highlightedTimeStepHolder {
+    justify-content: flex-end;
+    align-items: center;
+    display: flex;
+}
+
+#highlightedPatientId, #highlightedTimeStep {
+    color: var(--paper-blue-500);
+    padding-right: 5px;
+    position: fixed;
+}
+
+#patientIdInput.invalid, #timeStepInput.invalid {
+    border-color: var(--paper-red-500);
+}
+
+#sidebarSeparator {
+    height: 0;
+    background-color: var(--paper-grey-300);
+    margin: 3px 5px;
+}
+
+#sideBar {
+    min-width: calc(414px + 16px);
+}
+
+paper-button {
+    height: 1em;
+    max-width: 20px;
+}
+
+td {
+    font-size: 12px;
+}
+
+#progressContainer {
+    width: 40%;
+    position: absolute;
+    left: 50%;
+    top: 45%;
+    transform: translate(-50%, -50%);
+}
+
+#progressContainer > div#loading-label {
+    margin-left: 0;
+    padding-left: 0;
+}
+
+paper-progress {
+    --paper-progress-transition-duration: 0.8s;
+    --paper-progress-transition-transition-delay: 0.00s;
+    --paper-progress-active-color: var(--app-accent-color);
+    width: 100%;
+}
+
+#slidersContainer paper-slider {
+    width: 350px;
+}
+
+#tableLegendHolder {
+    padding: 5px 5px 0 5px;
+}
+
+#trainingPatientWarning {
+    font-size: 10px;
+    color: var(--app-accent-color);
+    margin: -3px 46px -1px 0;
+    text-align: right;
+}
+
+#cardTray {
+    width: 100%;
+}
+
+.invisible {
+    visibility: hidden;
+}

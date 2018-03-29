@@ -1,0 +1,218 @@
+<link rel="import" href="../../../bower_components/polymer/polymer.html">
+
+<dom-module id="mask-graph">
+    <template>
+        <style>
+            :host {
+                display: block;
+            }
+
+            svg {
+                width: 100%;
+                height: 100%;
+            }
+        </style>
+
+        <svg shape-rendering="optimizeSpeed" viewBox="0 0 800 800">
+            <filter id="blur">
+                <feGaussianBlur in="SourceGraphic" stdDeviation="0"></feGaussianBlur>
+            </filter>
+
+            <g id="graphic" filter="url(#blur)"></g>
+        </svg>
+    </template>
+    <script src="../../../bower_components/d3/d3.min.js"></script>
+    <script src="../../../bower_components/delaunay-fast/delaunay.js"></script>
+    <script>
+        Polymer({
+            is: 'mask-graph',
+
+            properties: {
+                points: {
+                    type: Object,
+                    observer: "pointsChanged"
+                },
+                highlightFeature: {
+                    type: String,
+                    observer: "pointsChanged"
+                },
+                tileSize: {
+                    type: Number,
+                    observer: "pointsChanged"
+                },
+                features: Array,
+                progress: Object,
+                ranker: Object
+            },
+
+            pointsChanged() {
+                if (this.highlightFeature === null || this.points === undefined || this.tileSize === undefined) {
+                    return;
+                }
+
+                let points = this.points;
+
+                if (this.progress === undefined) {
+                    this.createSVG(points)
+                } else {
+                    this.progress.addWorkItem(() => {
+                        this.createSVG(points);
+                        this.progress.reportProgress();
+                    });
+                }
+            },
+
+            createSVG(points) {
+                let tileSize = this.tileSize;
+                let feature = this.features[this.highlightFeature];
+
+                console.log("displaying feature", this.highlightFeature);
+
+                points = points
+//                    .filter(p => p.inputFeatures[feature] !== -1000.0)
+                    .map(p => ({x: p.x, y: p.y, value: p.inputFeatures[feature]}));
+
+                let xMin = points.map(p => p.x).min();
+                let xMax = points.map(p => p.x).max();
+                let yMin = points.map(p => p.y).min();
+                let yMax = points.map(p => p.y).max();
+
+                let filledTiles = points.groupBy(p =>
+                    JSON.stringify([Math.floor(p.x / tileSize), Math.floor(p.y / tileSize)]),
+                    l => (1 - this.ranker.rankNearestValue(l.map(a => a.value).average(), feature))
+                ).toDict();
+
+                let vertices = Object.keys(filledTiles).map(k => JSON.parse(k));
+                let delaunay = Delaunay.triangulate(vertices);
+                let triangles = delaunay.sliding(3);
+
+                function isInTriangle (p, a, b, c) {
+                    let px = p[0], py = p[1];
+                    let ax = a[0], ay = a[1];
+                    let bx = b[0], by = b[1];
+                    let cx = c[0], cy = c[1];
+
+                    let v0 = [cx-ax, cy-ay];
+                    let v1 = [bx-ax, by-ay];
+                    let v2 = [px-ax, py-ay];
+
+                    let dot00 = (v0[0] * v0[0]) + (v0[1] * v0[1]);
+                    let dot01 = (v0[0] * v1[0]) + (v0[1] * v1[1]);
+                    let dot02 = (v0[0] * v2[0]) + (v0[1] * v2[1]);
+                    let dot11 = (v1[0] * v1[0]) + (v1[1] * v1[1]);
+                    let dot12 = (v1[0] * v2[0]) + (v1[1] * v2[1]);
+
+                    let invDenom = 1/ (dot00 * dot11 - dot01 * dot01);
+
+                    let u = (dot11 * dot02 - dot01 * dot12) * invDenom;
+                    let v = (dot00 * dot12 - dot01 * dot02) * invDenom;
+
+                    return ((u >= 0) && (v >= 0) && (u + v < 1));
+                }
+
+                function interpolateInTriangle(p, P, X) {
+                    let area = (A, B, C) => {
+                        let length = (a, b) => Math.sqrt(Math.pow(a[0] - b[0], 2) + Math.pow(a[1] - b[1], 2));
+                        let a = length(B, C), b = length(A, C), c = length(A, B);
+
+                        let s = (a + b + c) / 2;
+                        return Math.sqrt(s * (s - a) * (s - b) * (s - c));
+                    };
+
+                    let z = [area(p, P[1], P[2]), area(p, P[0], P[2]), area(p, P[0], P[1])];
+                    let A = z.sum();
+
+                    return z.zipWith(X).map(([a, b]) => a * b).sum() / A;
+                }
+
+                let tiles = [];
+                for (let x = Math.floor(xMin / tileSize); x <= Math.floor(xMax / tileSize); x += 1) {
+                    for (let y = Math.floor(yMin / tileSize); y <= Math.floor(yMax / tileSize); y += 1) {
+                        let key = JSON.stringify([Math.floor(x), Math.floor(y)]);
+                        if (filledTiles.hasOwnProperty(key)) {
+                            tiles.push({x: x, y: y, value: filledTiles[key]});
+                        } else {
+                            let p = [x, y];
+
+                            let triangle = triangles.find(t => {
+                                let a = vertices[t[0]], b = vertices[t[1]], c = vertices[t[2]];
+                                return isInTriangle(p, a, b, c)
+                            });
+
+                            if (triangle !== null) {
+                                let P = triangle.map(z => vertices[z]);
+                                let X = P.map(z => filledTiles[JSON.stringify(z)]);
+
+                                tiles.push({x: x, y: y, value: interpolateInTriangle(p, P, X)});
+                            }
+                        }
+                    }
+                }
+
+                d3
+                    .select(this.$.graphic)
+                    .selectAll("rect")
+                    .data(tiles)
+                    .enter()
+                    .append("rect")
+                    .attr("x", p => p.x * tileSize)
+                    .attr("y", p => p.y * tileSize)
+                    .attr("width", tileSize).attr("height", tileSize)
+                    .attr("fill", "white")
+                    .attr("fill-opacity", p => p.value);
+            },
+
+            _createSVG(points) {
+                let tileSize = 30;
+                let tiles = [];
+
+                console.log("displaying feature", this.highlightFeature);
+
+                let feature = this.features[this.highlightFeature];
+
+                points = points
+                    .filter(p => p.inputFeatures[feature] !== -1000.0)
+                    .map(p => ({x: p.x, y: p.y, value: (1 - this.ranker.rankValue(p.inputFeatures[feature], feature))}));
+
+                for (let i = 0; i < 5; i++) {
+                    for (let j = 0; j < 5; j++) {
+                        let x = i / 5 * tileSize;
+                        let y = j / 5 * tileSize;
+
+                        tiles = tiles.concat(points.groupBy(p =>
+                            JSON.stringify([
+                                Math.floor((x + p.x) / tileSize) * tileSize + x,
+                                Math.floor((y + p.y) / tileSize) * tileSize + y
+                            ])
+                        ));
+                    }
+                }
+
+                d3.select(this.$.graphic).selectAll("rect").remove();
+
+                let scale = d3
+                    .scaleLinear()
+                    .domain([
+                        tiles.map(p => p[1].map(x => x.value).average()).min(),
+                        tiles.map(p => p[1].map(x => x.value).average()).max()
+                    ])
+                    .range([0, 1 / 25.0]);
+
+                d3
+                    .select(this.$.graphic)
+                    .selectAll("rect")
+                    .data(tiles)
+                    .enter()
+                    .append("rect")
+                    .attr("x", p => JSON.parse(p[0])[0])
+                    .attr("y", p => JSON.parse(p[0])[1])
+                    .attr("width", tileSize).attr("height", tileSize)
+                    .attr("fill", "white")
+                    .attr("fill-opacity", p => p[1].map(x => x.value).average() * 2.5 * (1 / 25.0));
+//                    .attr("fill-opacity", p => scale(p[1].map(x => x.value).average()));
+
+                window.notifyLoadUpdate();
+            }
+        });
+    </script>
+</dom-module>

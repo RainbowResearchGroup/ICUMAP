@@ -1,0 +1,59 @@
+<link rel="import" href="../../../bower_components/polymer/polymer.html">
+
+<dom-module id="similarity-circle">
+    <template>
+        <style>
+            :host {
+                display: block;
+            }
+
+            svg {
+                width: 100%;
+                height: 100%;
+                opacity: 0.8;
+            }
+        </style>
+
+        <svg viewBox="0 0 2 2" hidden$="[[!hasDissimilarity(dissimilarity)]]">
+            <circle fill="black" cx="1" cy="1" r="1"></circle>
+            <circle fill="white" cx="1" cy="1" r="0" id="whiteCircle"></circle>
+        </svg>
+    </template>
+    <script>
+        Polymer({
+            is: 'similarity-circle',
+
+            properties: {
+                dissimilarity: {
+                    type: Number,
+                    value: null
+                },
+                radius: {
+                    type: Number,
+                    computed: "computeRadius(dissimilarity)",
+                    observer: "radiusChanged"
+                }
+            },
+
+            hasDissimilarity(dissimilarity) {
+                return dissimilarity !== undefined && dissimilarity !== null && !isNaN(dissimilarity);
+            },
+
+            computeRadius(dissimilarity) {
+                if (!this.hasDissimilarity(dissimilarity)) return 0;
+                if (dissimilarity < 0.01) return 0;
+
+                let L = 1; // max value
+                let k = 1; // curve "steepness"
+                let x0 = 3; // curve midpoint
+                let x = dissimilarity;
+                let score = L / (1 + Math.exp(-k * (x - x0)));
+                return Math.max(0, 3.5 * score) / 4;
+            },
+
+            radiusChanged() {
+                d3.select(this.$.whiteCircle).attr("r", this.radius);
+            }
+        });
+    </script>
+</dom-module>

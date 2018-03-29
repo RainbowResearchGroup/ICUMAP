@@ -1,0 +1,268 @@
+<link rel="import" href="../../bower_components/polymer/polymer.html">
+<link rel="import" href="../../bower_components/paper-styles/color.html">
+<link rel="import" href="../../bower_components/paper-input/paper-input.html">
+<link rel="import" href="touch-spinner.html">
+<link rel="import" href="../../bower_components/iron-flex-layout/iron-flex-layout-classes.html">
+<link rel="import" href="graphs/spark-histogram.html">
+
+<dom-module id="state-table">
+    <template>
+        <style is="custom-style" include="iron-flex iron-flex-alignment"></style>
+        <style>
+            :host {
+                display: block;
+                --histogram-width: 100px;
+                --paper-input-container-underline: {
+                    border-bottom: 0;
+                };
+                --histogram-bin-opacity: 0.85;
+                --histogram-bin-color: var(--paper-grey-500);
+                --histogram-highlight-color: var(--app-accent-color, --paper-purple-500);
+                --paper-input-container-focus-color: var(--app-accent-color);
+            }
+
+            tr.highlight {
+                background-color: var(--app-accent-color, var(--paper-purple-500));
+                color: white;
+                cursor: default;
+            }
+
+            tr.highlight spark-histogram {
+                --histogram-bin-color: var(--paper-grey-200);
+                --histogram-highlight-color: var(--paper-grey-50);
+                --histogram-bin-opacity: 0.5;
+            }
+
+            td, tr, table {
+                border: none;
+                border-spacing: 0;
+                border-collapse: collapse;
+                margin: 0;
+            }
+
+            td {
+                padding: 2px 5px;
+            }
+
+            .numeric {
+                /*max-width: 2px;*/
+            }
+
+            input {
+                /*max-width: 92px;*/
+            }
+
+            paper-input {
+                margin-top: -8px;
+                margin-bottom: -8px;
+            }
+
+            .histogram-holder {
+                position: relative;
+                width: var(--histogram-width);
+            }
+
+            spark-histogram {
+                width: var(--histogram-width);
+                position: absolute;
+                top: 0;
+                bottom: 0;
+                padding-top: inherit;
+                padding-bottom: inherit;
+            }
+
+            .highlight-column {
+                color: var(--paper-blue-500);
+                max-width: 30px;
+                min-width: 30px;
+            }
+
+            .highlight-column > div {
+                position: fixed;
+                transform: translate(0, -50%); /* Dunno why I need this but I do */
+                text-align: right;
+                max-width: 30px;
+                min-width: 30px;
+            }
+
+            .parameter-name {
+                white-space: nowrap;
+            }
+        </style>
+
+        <table on-mouseleave="onTableOut">
+            <template id="repeater" is="dom-repeat" items="{{combinedData}}" index-as="i" filter="filterSidebarItems">
+                <tr on-mouseenter="onRowOver" on-mouseleave="onRowOut" id="[[item.name]]">
+                    <td class="parameter-name">
+                        <label id="patientIdLabel" for="input">[[item.name]]</label>
+                    </td>
+                    <td class="numeric" align="right">
+                        <!--<input id="input" type="number" value="{{item.query::input}}" step="[[item.step]]"/>-->
+                        <touch-spinner value="{{item.query}}" step="[[item.step]]"></touch-spinner>
+                        <!--<paper-input type="number" no-label-float value="{{item.data}}"></paper-input>-->
+                    </td>
+                    <td class="histogram-holder">
+                        <spark-histogram values="[[item.values]]" bin-count="94"
+                                         highlight-value="{{item.query}}"
+                                         secondary-values="[[item.highlightArr]]">
+                        </spark-histogram>
+                    </td>
+                    <td class="highlight-column">
+                        <div>[[item.highlight]]</div>
+                    </td>
+                </tr>
+            </template>
+        </table>
+    </template>
+    <script>
+        Polymer({
+            is: 'state-table',
+
+            properties: {
+                combinedData: {
+                    type: Array
+                },
+                data: {
+                    type: Array,
+                    observer: "dataChanged"
+                },
+                queryPatient: {
+                    type: Array,
+                    notify: true,
+                    observer: "queryPatientChanged"
+                },
+                features: {
+                    type: Array,
+                    observer: "highlightedPatientChanged"
+                },
+                featureProperties: {
+                    type: Array,
+                    observer: "highlightedPatientChanged"
+                },
+                highlightedPatient: {
+                    type: Object,
+                    observer: "highlightedPatientChanged"
+                },
+                scaler: {
+                    type: Object,
+                    observer: "highlightedPatientChanged"
+                },
+                highlightFeature: {
+                    type: String,
+                    notify: true
+                },
+                showDied: {
+                    type: Boolean,
+                    value: false
+                }
+            },
+
+            observers: [
+                "emptyStringNullifier(queryPatient.*)",
+                "queryChanged(combinedData.*)"
+            ],
+
+            queryChanged(detail) {
+                if (detail.path.includes("query")) {
+                    // If the property of combinedData which changed was combinedData.*.query, then:
+                    //    Use a regex to find out which index "*" is
+                    //    Use this to update the matching element of queryPatient
+                    this.set(`queryPatient.${/combinedData.#(.*).query/g.exec(detail.path)[1]}`, detail.value);
+                }
+            },
+
+            dataChanged() {
+                if (this.combinedData === undefined || this.data.length !== this.combinedData.length) {
+                    this.combinedData = this.data;
+                    this.highlightedPatientChanged();
+                    this.queryPatientChanged();
+                } else {
+                    let newData = [];
+                    this.combinedData.forEach((d, i) => {
+                        newData.push({
+                            name: data[i].name,
+                            values: data[i].values,
+                            step: data[i].step,
+                            query: d.query,
+                            highlight: d.highlight,
+                            highlightArr: d.highlightArr
+                        });
+                    });
+                    this.combinedData = newData;
+                }
+            },
+
+            queryPatientChanged() {
+                if (this.queryPatient === undefined || this.queryPatient === null
+                    || this.queryPatient.length === 0) return;
+
+                let newData = [];
+                this.combinedData.forEach((d, i) => {
+                    newData.push({
+                        name: d.name,
+                        values: d.values,
+                        step: d.step,
+                        query: this.queryPatient[i],
+                        highlight: d.highlight,
+                        highlightArr: d.highlightArr
+                    });
+                });
+                this.combinedData = newData;
+            },
+
+            highlightedPatientChanged() {
+                if (this.highlightedPatient === undefined || this.scaler === undefined) return;
+
+                let highlightForFeature = i => {
+                    let v = this.scaler.unscaleValue(this.highlightedPatient.inputFeatures[i], i);
+                    let step = this.combinedData[i].step;
+                    let u = Math.round(v / step) * step;
+                    return u >= 100 || i === this.features["Time Step"] ? u : u.toPrecision(2);
+                };
+
+                let newData = [];
+                this.combinedData.forEach((d, i) => {
+                    newData.push({
+                        name: d.name,
+                        values: d.values,
+                        step: d.step,
+                        query: d.query,
+                        highlight: this.highlightedPatient === null ? undefined : highlightForFeature(i),
+                        highlightArr: this.highlightedPatient === null ? [] : [highlightForFeature(i)]
+                    });
+                });
+                this.combinedData = newData;
+            },
+
+            filterSidebarItems(item) {
+                return this.featureProperties[this.features[item.name]].showInSidebar;
+            },
+            
+            emptyStringNullifier() {
+                if (this.queryPatient === undefined || this.queryPatient === null) return;
+
+                this.queryPatient.forEach((td, i) => {
+                    if (td.data === "") {
+                        td.data = null;
+                        this.notifyPath(`tableData.${i}`);
+                    }
+                });
+            },
+
+            onRowOver(event) {
+                this.highlightFeature = event.target.id;
+                event.target.classList.add("highlight");
+                this.updateStyles();
+            },
+
+            onRowOut(event) {
+                event.target.classList.remove("highlight");
+            },
+
+            onTableOut() {
+                this.highlightFeature = null;
+                this.updateStyles();
+            }
+        });
+    </script>
+</dom-module>

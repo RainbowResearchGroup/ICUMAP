@@ -1,0 +1,102 @@
+<link rel="import" href="../../bower_components/polymer/polymer.html">
+<link rel="import" href="../../bower_components/iron-flex-layout/iron-flex-layout-classes.html">
+
+<dom-module id="touch-spinner">
+    <template>
+        <style is="custom-style" include="iron-flex iron-flex-alignment"></style>
+        <style>
+            :host {
+                display: block;
+            }
+
+            input {
+                width: 30px;
+                text-align: right;
+                z-index: 3;
+            }
+
+            /* Force the spinner buttons to always be displayed in Chrome */
+            input[type=number]::-webkit-inner-spin-button,
+            input[type=number]::-webkit-outer-spin-button {
+                display: none;
+            }
+
+            input[type=number] {
+                padding-top: 2px;
+                padding-right: 2px;
+            }
+
+            .stepper {
+                color: #555555;
+                min-width: 16px;
+                height: 24px;
+                /*background-color: #f0f0f0;*/
+                /*position: absolute;*/
+                background-color: white;
+                border: 0.5px solid #a9a9a9;
+                font-size: 10px;
+                /*top: 4px;*/
+                display:flex;
+                justify-content:center;
+                align-items:center;
+                user-select: none;
+            }
+
+            .stepper:hover {
+                background-color: #cccccc;
+            }
+
+            #decrement {
+                /*transform: translate(28px, -19px);*/
+                border-right: none;
+            }
+
+            #increment {
+                border-left: none;
+                /*transform: translate(42px, -19px);*/
+            }
+        </style>
+
+        <div class="layout horizontal">
+            <div id="decrement" class="stepper" on-down="spinnerDown" on-up="spinnerUp">▼</div>
+            <input class="flex" id="input" type="number" value="{{value::input}}" step="[[step]]"/>
+            <div id="increment" class="stepper" on-down="spinnerDown" on-up="spinnerUp">▲</div>
+        </div>
+    </template>
+    <script>
+        Polymer({
+            is: 'touch-spinner',
+
+            properties: {
+                value: {
+                    type: Number,
+                    notify: true
+                },
+                step: {
+                    type: Number,
+                    notify: true
+                }
+            },
+
+            spinnerDown(e) {
+                let f = () => {
+                    if (e.target.id === "increment") {
+                        this.$.input.stepUp(1);
+                    } else {
+                        this.$.input.stepDown(1);
+                    }
+
+                    this.value = Number(this.$.input.value);
+                };
+                f();
+                this.timeout = window.setTimeout(() => this.interval = window.setInterval(f, 33), 300);
+            },
+
+            spinnerUp() {
+                window.clearTimeout(this.timeout);
+                window.clearInterval(this.interval);
+                this.$.input.focus();
+            }
+        });
+    </script>
+</dom-module>

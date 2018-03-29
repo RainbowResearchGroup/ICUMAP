@@ -1,0 +1,190 @@
+<link rel="import" href="../../bower_components/polymer/polymer.html">
+<link rel="import" href="../../bower_components/app-layout/app-drawer/app-drawer.html">
+<link rel="import" href="../../bower_components/iron-flex-layout/iron-flex-layout-classes.html">
+<link rel="import" href="../../bower_components/paper-radio-button/paper-radio-button.html">
+<link rel="import" href="../../bower_components/paper-radio-group/paper-radio-group.html">
+<link rel="import" href="../../bower_components/iron-icons/iron-icons.html">
+<link rel="import" href="../../bower_components/paper-icon-button/paper-icon-button.html">
+<link rel="import" href="../../bower_components/juicy-ace-editor/juicy-ace-editor.html">
+
+<dom-module id="filter-drawer">
+    <template>
+        <style is="custom-style" include="iron-flex iron-flex-alignment"></style>
+        <style>
+            :host {
+                display: block;
+
+                --app-drawer-width: var(--filter-draw-width);
+                --app-drawer-scrim-background: rgba(0, 0, 0, 0);
+                --app-drawer-content-container: {
+                    box-shadow: 1px 0 2px 1px rgba(0,0,0,0.18);
+                }
+            }
+
+            div {
+                margin-left: 12px;
+            }
+
+            .header {
+                font-size: 20px;
+            }
+
+            .sub-header {
+                margin-top: 5px;
+                font-size: 16px;
+            }
+
+            #content {
+                height: 100%;
+                overflow: auto;
+                padding-top: 6px;
+            }
+
+            label, paper-radio-button {
+                display: block;
+            }
+
+            paper-radio-button {
+                --paper-radio-button-checked-color: black;
+            }
+
+            #titleContainer {
+                padding-right: 10px;
+                margin: auto;
+            }
+
+            #editor {
+                margin-left: calc(12px + 16px + 10px);
+                width: calc(100% - (36px + 16px + 10px));
+                padding-top: 2px;
+                padding-bottom: 2px;
+                border: 0.5px solid lightgray;
+            }
+        </style>
+
+        <app-drawer opened="{{opened}}">
+            <div id="content">
+                <div id="titleContainer" class="layout horizontal center">
+                    <div class="header flex">Filter</div>
+                    <paper-icon-button noink id="closeDrawer" icon="close"
+                                       toggles active="{{opened}}"></paper-icon-button>
+                </div>
+
+                <paper-radio-group id="group" selected="0" on-selected-changed="selectedChanged">
+                    <template is="dom-repeat" items="[[filterRules]]" as="rule" index-as="i">
+                        <paper-radio-button noink name="[[i]]">[[rule.name]]</paper-radio-button>
+                    </template>
+                </paper-radio-group>
+
+                <juicy-ace-editor id="editor" mode="ace/mode/javascript" on-editor-ready="editorReady"
+                                  wrapmode on-input="editorInputted"
+                                  on-blur="editorBlur" on-focus="editorFocus"></juicy-ace-editor>
+            </div>
+        </app-drawer>
+    </template>
+    <script>
+        Polymer({
+            is: 'filter-drawer',
+
+            properties: {
+                opened: {
+                    type: Boolean,
+                    notify: true
+                },
+                filterRules: {
+                    type: Array, // of {name, apply}
+                    value: [
+                        {
+                            name: "All patients",
+                            apply: p => true
+                        },
+                        {
+                            name: "Deaths",
+                            apply: p => p.attributes.died
+                        },
+                        {
+                            name: "Survivals",
+                            apply: p => !p.attributes.died
+                        }
+                    ],
+                    observer: "filterRulesChanged"
+                },
+                selectedFilterRule: {
+                    type: Object,
+                    notify: true
+                },
+                isFiltering: {
+                    type: Boolean,
+                    notify: true
+                }
+            },
+
+            ready() {
+                this.selectedFilterRule = this.filterRules[0];
+                this.isFiltering = false;
+
+                if (this.editor !== undefined) this.editor.setValue(String(this.selectedFilterRule.apply), 1);
+            },
+
+            filterRulesChanged() {
+                this.push("filterRules", {name: "Custom", apply: p => true});
+            },
+
+            editorReady(event) {
+                this.editor = event.detail;
+
+                this.editor.renderer.setShowGutter(false);
+                this.editor.setHighlightActiveLine(false);
+                this.editor.$blockScrolling = Infinity;
+                this.editorBlur();
+                this.editor.setOptions({
+                    maxLines: Infinity
+                });
+
+                if (this.selectedFilterRule !== undefined) {
+                    this.editor.setValue(String(this.selectedFilterRule.apply), 1);
+                }
+
+                if (URLParameters.get("filter") !== null) {
+                    this.editor.setValue(URLParameters.get("filter"));
+                    this.editorInputted();
+                }
+            },
+
+            editorInputted() {
+                let customIndex = this.filterRules.length - 1;
+
+                this.$.group.selected = customIndex;
+                this.filterRules[customIndex].apply = this.editor.getValue();
+
+                this.selectedChanged(undefined, {value: customIndex});
+            },
+
+            editorBlur() {
+                this.editor.renderer.$cursorLayer.element.style.visibility = "hidden";
+            },
+
+            editorFocus() {
+                this.editor.renderer.$cursorLayer.element.style.visibility = "visible";
+            },
+
+            selectedChanged(_, detail) {
+                window.setTimeout(() => {
+                    let index = detail.value;
+
+                    this.selectedFilterRule = {
+                        name: this.filterRules[index].name,
+                        apply: this.filterRules[index].apply
+                    };
+
+                    if (index !== this.filterRules.length - 1) {
+                        this.editor.setValue(String(this.selectedFilterRule.apply), 1);
+                        this.filterRules[this.filterRules.length - 1].apply = this.selectedFilterRule.apply;
+                    }
+
+                    this.isFiltering = index !== 0;
+                }, 50);
+            }
+        });
+    </script>
+</dom-module>

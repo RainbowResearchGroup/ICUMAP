@@ -1,0 +1,137 @@
+<link rel="import" href="../../bower_components/polymer/polymer.html">
+<link rel="import" href="../../bower_components/paper-styles/color.html">
+<link rel="import" href="../../bower_components/iron-flex-layout/iron-flex-layout-classes.html">
+<script src="../../bower_components/d3/d3.min.js"></script>
+<script src="../../bower_components/chroma-js/chroma.min.js"></script>
+
+<dom-module id="color-legend">
+    <template>
+        <style is="custom-style" include="iron-flex"></style>
+        <style>
+            :host {
+                display: block;
+                --border-style: 1px solid var(--paper-grey-500);
+            }
+
+            div {
+                font-size: 10px;
+            }
+
+            svg {
+                opacity: 0.65;
+            }
+
+            .gradientContainer {
+                margin: 0;
+                padding: 0;
+                font-size: 0;
+                z-index: 2;
+            }
+
+            .gradient {
+                width: 100%;
+                height: 8px;
+                z-index: 1;
+            }
+
+            .gradientSeparator {
+                height: 2px;
+            }
+
+            .entryLabel, .exitLabel {
+                padding: 1px 2px;
+            }
+
+            .tb {
+                border-top: var(--border-style);
+            }
+
+            .bb {
+                border-bottom: var(--border-style);
+            }
+
+            .rb {
+                border-right: var(--border-style);
+            }
+
+            .lb {
+                border-left: var(--border-style);
+            }
+        </style>
+
+        <div class="layout vertical">
+            <div class="labels layout horizontal">
+                <div class="entryLabel tb lb">Admission</div>
+                <div class="flex"></div>
+                <div class="exitLabel tb rb">Discharge</div>
+            </div>
+            <div class="gradientContainer lb rb">
+                <svg class="gradient" id="dischargeGradient" shape-rendering="crispEdges"></svg>
+            </div>
+            <div class="gradientSeparator lb"></div>
+            <div class="gradientContainer lb rb">
+                <svg class="gradient" id="deathGradient" shape-rendering="crispEdges"></svg>
+            </div>
+            <div class="labels layout horizontal">
+                <div class="entryLabel"></div>
+                <div class="flex"></div>
+                <div class="exitLabel bb rb">Mortality</div>
+            </div>
+        </div>
+    </template>
+    <script src="ColorScales.js"></script>
+    <script>
+        Polymer({
+            is: 'color-legend',
+
+            attached() {
+//                window.requestAnimationFrame(() => this.redraw());
+                window.setTimeout(this.redraw.bind(this), 1500);
+                window.addEventListener("resize", () => window.requestAnimationFrame(() => this.redraw()));
+            },
+
+            redraw() {
+                let scale = new ColorScales();
+                this.drawGradient(this.$.dischargeGradient, scale.dischargeSource, scale.dischargeTarget);
+                this.drawGradient(this.$.deathGradient, scale.deathSource, scale.deathTarget);
+            },
+
+            drawGradient(svg, startColor, endColor) {
+                let data = [];
+                let width = svg.getBoundingClientRect().width;
+                let height = svg.getBoundingClientRect().height;
+                for (let k = 0; k < width; k++) {
+                    let j = k;
+
+                    let lab = [];
+                    for (let i =  0; i < 3; i++) {
+                        lab.push(
+                            startColor[i] + j / width * (endColor[i] - startColor[i])
+                        )
+                    }
+
+                    data.push({x: k, color: chroma.lab(lab)})
+                }
+
+                d3
+                    .select(svg)
+                    .selectAll("rect")
+                    .data([])
+                    .exit()
+                    .remove();
+
+                d3
+                    .select(svg)
+                    .selectAll("rect")
+                    .data(data)
+                    .enter()
+                    .append("rect")
+                    .attr("x", p => p.x)
+                    .attr("y", 0)
+                    .attr("fill", p => p.color)
+                    .attr("width", 1)
+                    .attr("height", height);
+            }
+        });
+    </script>
+</dom-module>

@@ -1,0 +1,578 @@
+<link rel="import" href="../../bower_components/polymer/polymer.html">
+<link rel="import" href="../../bower_components/iron-flex-layout/iron-flex-layout-classes.html">
+<link rel="import" href="../../bower_components/paper-styles/color.html">
+<link rel="import" href="../../bower_components/paper-button/paper-button.html">
+<link rel="import" href="../../bower_components/paper-slider/paper-slider.html">
+<link rel="import" href="../../bower_components/paper-checkbox/paper-checkbox.html">
+<link rel="import" href="../../bower_components/paper-progress/paper-progress.html">
+<link rel="import" href="../../bower_components/paper-icon-button/paper-icon-button.html">
+<link rel="import" href="../../bower_components/iron-icons/iron-icons.html">
+<link rel="import" href="cards/card-tray.html">
+<link rel="import" href="data/data-module.html">
+<link rel="import" href="data/filter-module.html">
+<link rel="import" href="graphs/line-graph.html">
+<link rel="import" href="graphs/efficient-masks.html">
+<link rel="import" href="filter-drawer.html">
+<link rel="import" href="state-table.html">
+<link rel="import" href="color-legend.html">
+
+<dom-module id="tsne-app">
+    <link rel="import" type="css" href="tsne-app.css">
+    <template>
+        <style is="custom-style" include="iron-flex iron-flex-alignment"></style>
+
+        <!--
+            Pre-Slider Values:
+                Amplitude:             0.15
+                Length Distribution:   8.00
+                Baseline:              0.00
+
+            Alan Values:
+                Amplitude:             0.76
+                Length Distribution:  12.14
+                Baseline:              0.11
+
+            Me:
+                Amplitude:             0.35
+                Length Distribution:  24.50
+                Baseline:              0.17
+                       or
+                Amplitude:             0.85
+                Length Distribution:  35.00
+                Baseline:              0.05
+        -->
+        <div id="tsne-root-div" class="layout vertical">
+            <div id="slidersContainer" style="margin-left: 50px; margin-top: 6px; display: none;">
+                <table>
+                    <tr>
+                        <td>Amplitude:</td>
+                        <td><paper-slider value="0.85" immediate-value="{{lineOpacityMaster}}"
+                                          min="0" max="1" step="0.01"></paper-slider></td>
+                        <td>{{lineOpacityMaster}}</td>
+                    </tr>
+                    <tr>
+                        <td>Length Distribution:</td>
+                        <td><paper-slider value="35" immediate-value="{{lineOpacityLength}}"
+                                          min="0" max="60" step="0.01"></paper-slider></td>
+                        <td>{{lineOpacityLength}}</td>
+                    </tr>
+                    <tr>
+                        <td>Baseline:</td>
+                        <td><paper-slider value="0.06" immediate-value="{{lineOpacityShift}}" min="0"
+                                          max="1" step="0.01"></paper-slider></td>
+                        <td>{{lineOpacityShift}}</td>
+                    </tr>
+                </table>
+            </div>
+
+            <div id="appContainer" class="flex layout vertical">
+                <div id="showFiltersContainer" class="layout horizontal center">
+                    <paper-icon-button id="showFiltersButton" icon="filter-list" is-filtering$="[[isFiltering]]"
+                                       toggles active="{{opened}}"></paper-icon-button>
+                    <div id="showFiltersLabel" hidden$="[[!isFiltering]]" on-tap="showFilters">
+                        [[patientsFilter.name]]
+                    </div>
+                </div>
+                <filter-drawer opened="{{opened}}" selected-filter-rule="{{patientsFilter}}"
+                               is-filtering="{{isFiltering}}" filter-rules="[[filterRules]]"></filter-drawer>
+
+                <div class="flex"></div>
+                <div id="svgTableHolder" class$="layout horizontal [[centerJustification]] center">
+                    <div id="sideBar" class="layout vertical">
+                        <div visibility$="[[similarity]]">
+                            <paper-checkbox noink checked="{{useDatabase}}">
+                                Select patient for comparison:
+                            </paper-checkbox>
+                            <div class="layout horizontal">
+                                <label id="patientIdLabel" for="patientIdInput">Patient</label>
+                                <touch-spinner id="patientIdInput" type="number"
+                                               value="{{patient.patientId}}"></touch-spinner>
+                                <div id="highlightedPatientIdHolder" class="flex">
+                                    <span id="highlightedPatientId">[[highlightedPatient.patientId]]</span>
+                                </div>
+                            </div>
+                            <div class="layout horizontal">
+                                <label id="timeStepLabel" for="timeStepInput">Time Step</label>
+                                <touch-spinner id="timeStepInput" type="number"
+                                               value="{{patient.timeStep}}"></touch-spinner>
+                                <div id="highlightedTimeStepHolder" class="flex">
+                                    <span id="highlightedTimeStep">[[timeStepForPatient(highlightedPatient)]]</span>
+                                </div>
+                            </div>
+
+                            <div id="trainingPatientWarning" class$="[[usingTrainingPatient(useDatabase, row)]]">
+                                This is a historical patient
+                            </div>
+                        </div>
+
+                        <paper-checkbox noink checked="{{locked}}" display$="[[lockable]]">
+                            Lock to this patient
+                        </paper-checkbox>
+
+                        <div id="showNearestOption" display$="[[showNearestVisibility(similarity, cloud)]]" class="layout horizontal">
+                            <label for="nearestCountInput">
+                                <paper-checkbox noink checked="{{showNearest}}" style="margin-top: -1px;">
+                                    Highlight the
+                                </paper-checkbox>
+                            </label>
+                            <!--<input id="nearestCountInput" type="number" min="1" value="{{uiNearestCount::input}}"/>-->
+                            <touch-spinner style="transform: translateY(-4px); margin-right: 4px;"
+                                           value="{{uiNearestCount}}" step="1"></touch-spinner>
+                            <span id="showNearestExtendedLabel" on-tap="changeShowNearestSelected">
+                                most similar historical patients
+                            </span>
+                        </div>
+
+                        <div id="sidebarSeparator"></div>
+                        <state-table query-patient="{{queryPatient}}" highlighted-patient="{{highlightedPatient}}"
+                                     highlight-feature="{{feature}}" data="{{tableStructure}}" features="[[features]]"
+                                     feature-properties="[[featureProperties]]" scaler="[[scaler]]"></state-table>
+                        <div id="tableLegendHolder">
+                            <color-legend visibility$="[[legend]]" id="tableLegend" class="flex"></color-legend>
+                        </div>
+                    </div>
+
+                    <div class="flex layout horizontal center-justified">
+                        <div id="svgHolder" visibility$="[[cloud]]">
+                            <line-graph id="background-line-graph" points="[[points]]" selection-mode="none"
+                                        deselected-opacity-master="[[lineOpacityMaster]]" show-lines
+                                        deselected-opacity-length="[[lineOpacityLength]]" features="[[features]]"
+                                        deselected-opacity-shift="[[lineOpacityShift]]"
+                                        hidden-patients="[[hiddenPatients]]"
+                                        ></line-graph>
+                            <efficient-masks id="masks" points="[[points]]" features="[[features]]" tile-size="30"
+                                             highlight-feature="[[feature]]" ranker="[[ranker]]"
+                                             progress="[[progressReporter]]"></efficient-masks>
+                            <line-graph id="foregroundLineGraph" points="[[points]]" features="[[features]]"
+                                        feature-properties="[[featureProperties]]"
+                                        cardinal-distance="[[cardinalDistance]]"
+                                        query-patient="[[queryPatient]]" selection-mode="hybrid"
+                                        highlight-feature="[[feature]]" ranker="[[ranker]]"
+                                        highlighted-patient="{{highlightedPatient}}" scaler="[[scaler]]"
+                                        nearest-count="[[showNearestCount]]" hidden-patients="[[hiddenPatients]]"
+                                        nearest-patients="{{nearestPatients}}"></line-graph>
+                        </div>
+                    </div>
+                </div>
+
+                <card-tray id="cardTray" nearest-patients="[[nearestPatients]]" show-query="[[showQueryCard]]"
+                           highlighted-patient="{{highlightedPatient}}" show-highlighted="[[showHighlightedCard]]"
+                           query-patient="{{queryPatientAttributes}}"></card-tray>
+
+                <div class="flex"></div>
+            </div>
+        </div>
+
+        <div id="progressContainer" class="layout center-justified">
+            <div id="loading-label">Loading...</div>
+            <paper-progress id="progress"></paper-progress>
+        </div>
+
+        <data-module data-directory="[[layout]]" attributes-file="[[attributesFile]]"
+                     points="{{points}}" queries="{{queries}}" feature-properties="{{featureProperties}}"
+                     features="{{features}}" rank-data ranker="{{ranker}}" scaler="{{scaler}}"
+                     filter-file="[[filterFile]]" filter-rules="{{filterRules}}"></data-module>
+
+        <filter-module points="[[points]]" hidden-patients="{{hiddenPatients}}"
+                       filter="[[patientsFilter]]"></filter-module>
+    </template>
+    <script>
+        Polymer({
+            is: 'tsne-app',
+
+            properties: {
+                layout: String,
+                attributesFile: String,
+                filterFile: String,
+                /** Whether to show the nearest patients to the patient in the state-table **/
+                showNearest: {
+                    type: Boolean,
+                    observer: "showNearestChanged"
+                },
+                /** How many nearest patients to show when showNearest is true **/
+                showNearestCount: {
+                    type: Number,
+                    value: 0,
+                },
+                lineOpacityShift: {type: Number},
+                baseline: {
+                    type: String,
+                    observer: "baselineChanged"
+                },
+                inputCardinalDistance: {
+                    type: String,
+                    value: "0.0",
+                    observer: "cardinalChanged"
+                },
+                /** The value of the number of nearest patients to show that's displayed to the user. **/
+                uiNearestCount: {
+                    type: Number,
+                    value: 10,
+                    observer: "uiNearestCountChanged"
+                },
+                centered: {
+                    type: String,
+                    value: "true",
+                    observer: "centeredChanged"
+                },
+                cloud: {
+                    type: String,
+                    value: "visible",
+                    observer: "cloudVisibilityChanged"
+                },
+                legend: {
+                    type: String,
+                    value: "visible",
+                },
+                lockable: {
+                    type: String,
+                    value: "hidden"
+                },
+                locked: {
+                    type: Boolean,
+                    observer: "lockedChanged"
+                },
+                similarity: {
+                    type: String,
+                    value: "visible",
+                    observer: "similarityVisibilityChanged"
+                },
+                useDatabase: {
+                    type: Boolean,
+                    observer: "useDatabaseChanged",
+                },
+                features: {
+                    type: Object,
+                    observer: "featuresChanged"
+                },
+                queryPatient: {
+                    type: Array,
+                },
+                points: {
+                    type: Array,
+                    observer: "featuresChanged"
+                },
+                queries: {
+                    type: Array,
+                    observer: "featuresChanged"
+                },
+                databasePatients: {
+                    type: Array
+                },
+                highlightedPatient: {
+                    type: Object,
+                },
+                scaler: {
+                    type: Object,
+                    observer: "featuresChanged"
+                },
+                row: {
+                    type: Number,
+                    value: 0
+                },
+                nearestPatients: {
+                    type: Array,
+                    observer: "jsStyles"
+                }
+            },
+
+            observers: [
+                "updatePatientId(patient.patientId)",
+                "updatePatientTime(patient.timeStep)",
+                "queryPatientChanged(queryPatient.*)"
+            ],
+
+            showNearestVisibility(a, b) {
+                return a === "hidden" || b === "hidden" ? "hidden" : "visible";
+            },
+
+            centeredChanged(centered) {
+                this.centerJustification = centered === "true" ? "center-justified" : "";
+            },
+
+            baselineChanged() {
+                this.lineOpacityShift = Number(this.baseline);
+            },
+
+            cardinalChanged() {
+                this.cardinalDistance = Number(this.inputCardinalDistance);
+            },
+
+            cloudVisibilityChanged(cloudVisibility) {
+                this.showHighlightedCard = cloudVisibility !== "hidden";
+            },
+
+            similarityVisibilityChanged(queryVisibility) {
+                this.showQueryCard = queryVisibility !== "hidden";
+            },
+
+            ready() {
+                window.addEventListener("resize", this.jsStyles.bind(this));
+
+                this.createProgressReporter();
+            },
+
+            attached() {
+                this.jsStyles();
+                this.showNearest = false;
+            },
+
+            usingTrainingPatient(useDatabase, row) {
+                if (this.points === undefined) return "invisible";
+                return useDatabase && row < this.points.length ? "" : "invisible";
+            },
+
+            timeStepForPatient(p) {
+                if (p === undefined || p === null) return "";
+
+                if (p.hasOwnProperty("inputFeatures")) {
+                    return p.inputFeatures[this.features["Time Step"]];
+                } else {
+                    return p.rawFeatures[this.features["Time Step"]];
+                }
+            },
+
+            jsStyles() {
+                // Setting styles in JS eww. TODO: Find a way to hack css to do this
+                let nearestPatients = this.nearestPatients;
+                let maxWidth = 0;
+
+                if (nearestPatients !== undefined && nearestPatients !== null
+                    && nearestPatients.hasOwnProperty("length") && nearestPatients.length > 0) {
+                    this.$.svgHolder.style.marginTop = 0;
+                    maxWidth = window.innerHeight - this.$.cardTray.offsetHeight + 50;
+                } else {
+                    this.$.svgHolder.style.marginTop = `${this.$.cardTray.offsetHeight}px`;
+                    maxWidth = window.innerHeight + 50;
+                }
+
+                this.$.svgHolder.style.maxWidth = `${maxWidth}px`;
+                this.$.svgHolder.style.minWidth = `${Math.min(maxWidth,
+                    window.innerWidth - this.$.sideBar.offsetWidth - 40)}px`;
+            },
+
+            showFilters() {
+                this.opened = true;
+            },
+
+            createProgressReporter() {
+                if (this.$.masks === undefined) {
+                    this.$.appContainer.style.opacity = 1;
+                    this.$.progressContainer.style.visibility = "hidden";
+                } else {
+                    let self = this;
+                    let polymer = this.$;
+                    this.progressReporter = {
+                        progress: 0,
+                        runQueue: [],
+                        taskRunning: false,
+
+                        addWorkItem(item) {
+                            if (this.taskRunning) {
+                                this.runQueue.push(item);
+                            } else {
+                                window.setTimeout(item, 0);
+                                this.taskRunning = true;
+                            }
+                        },
+
+                        reportProgress() {
+                            polymer.progress.value = ++this.progress * 100 / Object.keys(self.features).length;
+                            window.setTimeout(this.runQueue.shift(), 0);
+
+                            if (polymer.progress.value >= 100) {
+                                polymer.appContainer.style.opacity = 1;
+                                polymer.progressContainer.style.visibility = "hidden";
+                            }
+                        }
+                    };
+                }
+            },
+
+            showNearestChanged() {
+                if (this.showNearest) {
+                    this.showNearestCount = this.uiNearestCount;
+                } else {
+                    this.showNearestCount = 0;
+                }
+
+                window.setTimeout(this.jsStyles.bind(this), 100);
+            },
+
+            changeShowNearestSelected() {
+                this.showNearest = !this.showNearest;
+            },
+
+            uiNearestCountChanged() {
+                // If the user changes the number of nearest patients, automatically select the
+                // "show nearest" checkbox
+                this.showNearest = true;
+                this.showNearestCount = this.uiNearestCount;
+            },
+
+            useDatabaseChanged() {
+                if (this.useDatabase) {
+                    this.updateSelectedPatient();
+                }
+            },
+
+            queryPatientChanged() {
+                if (this.queryPatient === undefined || this.queryPatient === null ||
+                    this.queryPatient.length !== Object.keys(this.features).length) {
+                    return;
+                }
+
+                let values = [];
+                for (let key in this.features) {
+                    let data =
+                        Math.round(10 * this.getValueForFeature(this.databasePatients[this.row], key, false)) / 10;
+                    if (data > 100) data = Math.round(data);
+                    data = data === -1000.0 ? "no data" : data;
+                    values.push(data);
+                }
+
+                // Mark useDatabase as true if the current query patient is identical to the selected database patient
+                this.useDatabase = this.queryPatient.zipWith(values).count(([x, y]) => x !== y) === 0;
+            },
+
+            featuresChanged() {
+                if (this.queries === undefined || this.scaler === undefined || this.points === undefined) return;
+
+                if (this.databasePatients === undefined) {
+                    this.databasePatients = this.points.concat(this.queries);
+                    this.row = this.points.length
+                }
+                this.updatePreviouslySelectedPatient();
+
+                if (this.showNearest && this.row !== undefined) {
+                    this.updateSelectedPatient();
+                    return;
+                }
+
+                // Create a template query patient. This template includes all the data required to generate the state
+                // table (i.e. the parameter names and data for the histograms), but not any entered values.
+                let stepForValues = (values) => {
+                    values = values.sortNumeric();
+                    let validMin = values[Math.floor(values.length * 0.015)];
+                    let validMax = values[Math.floor(values.length * 0.985 - 1)];
+
+                    return validMax - validMin < 10 ? 0.1 : 1
+                };
+                this.tableStructure = [];
+                for (let key in this.features) {
+                    let values = this.points.map(p => this.getValueForFeature(p, key, false));
+                    this.push('tableStructure', {
+                        name: key,
+                        values: values,
+                        step: stepForValues(values)
+                    })
+                }
+            },
+
+            getValueForFeature(p, feature, scaled) {
+                let featureIndex = this.features[feature];
+                if (p.hasOwnProperty("inputFeatures")) {
+                    if (scaled) return p.inputFeatures[featureIndex];
+                    else return this.scaler.unscaleValue(p.inputFeatures[featureIndex], featureIndex);
+                } else {
+                    if (scaled) return this.scaler.scaleValue(p.rawFeatures[featureIndex], featureIndex);
+                    else return p.rawFeatures[featureIndex];
+                }
+            },
+
+            updatePreviouslySelectedPatient() {
+                this.prevId = this.databasePatients[this.row].patientId;
+                this.prevTime = this.databasePatients[this.row].time;
+                this.patient = {
+                    patientId: this.prevId,
+                    timeStep: this.prevTime
+                };
+            },
+
+            searchForPatient(condition, direction) {
+                while (condition()) {
+                    let nextRow = this.row + direction;
+                    if (nextRow < 0 || nextRow >= this.databasePatients.length) {
+                        this.queryPatient = null;
+                        this.$.patientIdInput.classList.add("invalid");
+                        this.prevId = this.databasePatients[this.row].patientId;
+                        this.prevTime = this.databasePatients[this.row].time;
+                        return;
+                    } else {
+                        this.row = nextRow;
+                    }
+                }
+
+                this.$.patientIdInput.classList.remove("invalid");
+
+                this.updateSelectedPatient();
+            },
+
+            lockedChanged() {
+                if (this.locked) {
+                    this.lockedTime = this.prevTime;
+                }
+            },
+
+            updatePatientId(newId) {
+                if (this.locked) {
+                    this.set('patient.patientId', this.prevId);
+                    return;
+                }
+
+                if (newId > this.prevId) {
+                    this.searchForPatient(() => this.databasePatients[this.row].patientId < newId, 1);
+                } else if (newId < this.prevId) {
+                    this.searchForPatient(() => this.databasePatients[this.row].patientId > newId ||
+                    this.getValueForFeature(this.databasePatients[this.row], "Time Step", false), -1);
+                }
+            },
+
+            updatePatientTime(newTime) {
+                if (this.locked && newTime < 0) {
+                    this.set('patient.timeStep', 0);
+                    return;
+                }
+                if (this.locked && newTime > this.lockedTime) {
+                    this.set('patient.timeStep', this.lockedTime);
+                    return;
+                }
+
+                if (newTime == this.prevTime) return;
+
+                let oldPatientId = this.databasePatients[this.row].patientId;
+                let direction = newTime > this.prevTime ? 1 : -1;
+                this.searchForPatient(() =>
+                    this.getValueForFeature(this.databasePatients[this.row], "Time Step", false) != newTime &&
+                    this.databasePatients[this.row].patientId == oldPatientId, direction
+                );
+            },
+
+            updateSelectedPatient() {
+                if (this.queries === undefined || this.tableStructure === undefined) return;
+
+                this.databasePatients[this.row].time =
+                    this.getValueForFeature(this.databasePatients[this.row], "Time Step", false);
+                this.prevId = this.databasePatients[this.row].patientId;
+                this.prevTime = this.databasePatients[this.row].time;
+                this.patient = {
+                    patientId: this.prevId,
+                    timeStep: this.prevTime
+                };
+
+                let query = [];
+                for (let key in this.features) {
+                    let data =
+                        Math.round(10 * this.getValueForFeature(this.databasePatients[this.row], key, false)) / 10;
+                    if (data > 100) data = Math.round(data);
+                    data = data === -1000.0 ? "no data" : data;
+
+                    query.push(data);
+                }
+
+                this.queryPatient = query;
+                this.queryPatientAttributes = this.databasePatients[this.row];
+            }
+        });
+    </script>
+</dom-module>

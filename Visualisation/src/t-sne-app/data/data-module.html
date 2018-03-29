@@ -1,0 +1,271 @@
+<link rel="import" href="../../../bower_components/polymer/polymer.html">
+<link rel="import" href="../../../bower_components/iron-ajax/iron-ajax.html">
+
+<dom-module id="data-module">
+    <template>
+        <style>
+            :host {
+                display: block;
+            }
+        </style>
+
+        <iron-ajax
+                auto
+                url="{{dataPath}}"
+                handle-as="json"
+                on-response="dataLoaded"></iron-ajax>
+
+        <iron-ajax
+                auto
+                url="{{queryPath}}"
+                handle-as="json"
+                on-response="queryLoaded"></iron-ajax>
+
+        <iron-ajax
+                auto
+                url="{{attributesPath}}"
+                handle-as="json"
+                on-response="attributesLoaded"></iron-ajax>
+
+        <iron-ajax
+                auto
+                url="{{filterPath}}"
+                handle-as="json"
+                on-response="filterRulesLoaded"></iron-ajax>
+    </template>
+    <script>
+        class Percentile {
+            constructor(data) {
+                this.percentileDicts = data[0].indices().map(i => {
+                    let dict = {};
+                    let sorted = data.map(d => d[i]).filter(x => x !== -1000.0).sort((a, b) => a - b);
+                    sorted.forEach((v, j) => dict[v] = j / sorted.length);
+                    return dict;
+                });
+
+                this.percentileLists = data[0].indices().map(i =>
+                    data.map(d => d[i]).filter(x => x !== -1000.0).sort((a, b) => a - b)
+                );
+
+                this.scales = data[0].indices().map(feature => {
+                    let values = Object.keys(this.percentileDicts[feature]).map(x => parseFloat(x)).sortNumeric();
+                    let max_val = values.max();
+                    let j = 0;
+                    while (max_val > this.percentileLists[feature][j]) {
+                        j++;
+                    }
+                    let max_p = j / this.percentileLists[feature].length;
+                    return d3.scaleLinear().domain([0, max_p]).range([0, 1]);
+                })
+            }
+
+            rankValue(value, feature) {
+                return this.scales[feature](this.percentileDicts[feature][value]);
+            }
+
+            rankNearestValue(value, feature) {
+                let i = 0;
+                while (value > this.percentileLists[feature][i]) {
+                    i++;
+                }
+
+                let raw = i / this.percentileLists[feature].length;
+                return this.scales[feature](raw);
+            }
+        }
+
+        class Scaler {
+            constructor(instructions, features) {
+                this.centers = instructions.center;
+                this.scales = instructions.scale;
+
+                this.centers[features["Time Step"]] = 0;
+                this.scales[features["Time Step"]] = 1;
+            }
+
+            scaleValue(value, feature) {
+                return (value - this.centers[feature]) / this.scales[feature];
+            }
+
+            unscaleValue(value, feature) {
+                return value * this.scales[feature] + this.centers[feature];
+            }
+        }
+
+        Polymer({
+            is: 'data-module',
+
+            properties: {
+                dataDirectory: {
+                    type: String
+                },
+                attributesFile: {
+                    type: String
+                },
+                filterFile: {
+                    type: String // optional
+                },
+                dataPath: {
+                    type: String,
+                    computed: "computeDataPath(dataDirectory)"
+                },
+                queryPath: {
+                    type: String,
+                    computed: "computeQueryPath(dataDirectory)"
+                },
+                attributesPath: {
+                    type: String,
+                    computed: "computeAttributesPath(attributesFile)"
+                },
+                filterPath: {
+                    type: String,
+                    computed: "computeFilterPath(filterFile)"
+                },
+                points: {
+                    type: Array,
+                    notify: true,
+                    observer: "rankDataChanged"
+                },
+                queries: {
+                    type: Array,
+                    notify: true,
+                },
+                features: {
+                    type: Object,
+                    notify: true
+                },
+                featureProperties: {
+                    type: Array,
+                    notify: true
+                },
+                patientAttributes: {
+                    type: Array,
+                    notify: true
+                },
+                filterRules: {
+                    type: Array,
+                    notify: true
+                },
+                ranker: {
+                    type: Object,
+                    notify: true
+                },
+                scaler: {
+                    type: Object,
+                    notify: true
+                },
+                rankData: {
+                    type: Boolean,
+                    value: false,
+                    notify: true,
+                    observer: "rankDataChanged"
+                },
+                fileRoot: {
+                    type: String,
+                    value: "src/t-sne-app/data/data-files"
+                }
+            },
+
+            computeDataPath: (directory) => `src/t-sne-app/data/data-files/${directory}/data.json`,
+
+            computeQueryPath: (directory) => `src/t-sne-app/data/data-files/${directory}/queries.json`,
+
+            computeAttributesPath: (attributesFile) => `src/t-sne-app/data/data-files/${attributesFile}`,
+
+            computeFilterPath: (filterFile) => `src/t-sne-app/data/data-files/${filterFile}`,
+
+            rankDataChanged() {
+                if (this.rankData && this.ranker === undefined && this.points !== undefined) {
+                    this.ranker = new Percentile(this.points.map(p => p.inputFeatures));
+                }
+            },
+
+            dataLoaded(request) {
+                let data = request.detail.response;
+                let points = data.patients;
+
+                let nextDelta = 0;
+                points.forEach((p, i) => {
+                    if (p.time === 0 && p.next === -1) nextDelta += 1;
+                    else {
+                        p.id -= nextDelta;
+                        if (p.next !== -1) p.next -= nextDelta;
+                        if (p.prev !== -1) p.prev -= nextDelta;
+                    }
+                });
+                points = points.filter(p => !(p.time === 0 && p.next === -1));
+
+                let np = [];
+                let diff = 0;
+                for (let i = 0; i < points.length; i++) {
+                    if (points[i].patientId != 1481) {
+                        let p = points[i];
+
+                        if (p.prev > -1) {
+                            p.prev -= diff;
+                        }
+                        if (p.next > -1) {
+                            p.next -= diff;
+                        }
+                        p.id -= diff;
+
+                        np.push(p);
+                    } else {
+                        diff += 1;
+                    }
+                }
+                points = np;
+                console.log("np", points);
+
+                let k = 380 / (Math.max(points.map(p => p.x).max(), points.map(p => p.y).max()));
+                points.forEach(p => {
+                    p.x = k * p.x + 400;
+                    p.y = -k * p.y + 400;
+                });
+
+                this._points = points;
+
+                this.features = data.inputFeatureNames;
+                this.featureProperties = data.featureProperties;
+                this.scaler = new Scaler(data.scaler, this.features);
+
+                console.log("pids", this._points.distinctBy(p => p.patientId).length);
+                console.log("rows", this._points.length);
+
+                this.rankDataChanged();
+                this.mergeAttributesWith(this._points);
+            },
+
+            queryLoaded(request) {
+                this._queries = request.detail.response;
+                this.mergeAttributesWith(this._queries);
+            },
+
+            attributesLoaded(request) {
+                let attributes = request.detail.response;
+                this.patientAttributes = attributes.map(a => [a.patientId, a.attributes]).toDict();
+
+                this.mergeAttributesWith(this._points);
+                this.mergeAttributesWith(this._queries);
+            },
+
+            mergeAttributesWith(patientSubset) {
+                if (this.patientAttributes === undefined || patientSubset === undefined) return;
+                patientSubset.forEach(p => p.attributes = this.patientAttributes[p.patientId]);
+
+                if (this._queries !== undefined) this.queries = this._queries;
+                if (this._points !== undefined) this.points = this._points;
+
+                if (this.points !== undefined) {
+                    console.log(this.points);
+                    console.log(this.points.filter(p => p.patientId === 25794));
+                }
+            },
+
+            filterRulesLoaded(request) {
+                this.filterRules = request.detail.response;
+                console.log(this.filterRules);
+            }
+        });
+    </script>
+</dom-module>

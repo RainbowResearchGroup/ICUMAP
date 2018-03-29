@@ -1,0 +1,660 @@
+<link rel="import" href="../../../bower_components/polymer/polymer.html">
+
+<dom-module id="line-graph">
+    <template>
+        <style>
+            :host {
+                display: block;
+            }
+
+            svg {
+                width: 100%;
+                height: 100%;
+            }
+        </style>
+
+        <svg id="graphic" viewBox="0 0 800 800"></svg>
+    </template>
+    <script src="../../../bower_components/chroma-js/chroma.js"></script>
+    <script src="../ColorScales.js"></script>
+    <script>
+        Polymer({
+            is: 'line-graph',
+
+            properties: {
+                points: {
+                    type: Object,
+                    observer: "pointsChanged"
+                },
+                queryPatient: {
+                    type: Array,
+                },
+                highlightedPatient: {
+                    type: Object,
+                    notify: true,
+                    observer: "highlightedPatientChanged"
+                },
+                selectionMode: {
+                    type: String,
+                    value: "none" // set to "none", "points", "lines", or "hybrid" (points else lines)
+                },
+                highlightFeature: {
+                    type: String,
+                    observer: "highlightFeatureChanged"
+                },
+                ranker: {
+                    type: Object,
+                    observer: "updateNearestPatients"
+                },
+                hiddenPatients: {
+                    type: Array,
+                    value: [],
+                    observer: "hiddenPatientsChanged"
+                },
+                scaler: {
+                    type: Object
+                },
+                features: {
+                    type: Object,
+                    observer: "pointsChanged"
+                },
+                featureProperties: {
+                    type: Array,
+                    observer: "pointsChanged"
+                },
+                cardinalDistance: {
+                    type: Number,
+                    observer: "pointsChanged"
+                },
+                showLines: {
+                    type: Boolean,
+                    value: false,
+                    observer: "pointsChanged"
+                },
+                nearestCount: {
+                    type: Number,
+                    value: 5,
+                    observer: "updateNearestPatients"
+                },
+                nearestPatients: {
+                    type: Array,
+                    notify: true
+                },
+                // Design
+                deselectedOpacityMaster: {
+                    type: Number,
+                    observer: "_designOpacityChanged"
+                },
+                deselectedOpacityLength: {
+                    type: Number,
+                    observer: "_designOpacityChanged"
+                },
+                deselectedOpacityShift: {
+                    type: Number,
+                    observer: "_designOpacityChanged"
+                }
+            },
+
+            observers: [
+                'updateNearestPatients(queryPatient.*)',
+            ],
+
+            selectedOpacity: p => 0.8,
+
+            deselectedOpacity(p) {
+                if (this.showLines) {
+                    return (1 / this.deselectedOpacityLength) * (this.deselectedOpacityMaster / (
+                        Math.log1p(p.length / this.deselectedOpacityLength) /
+                        Math.log1p(this.maxLength / this.deselectedOpacityLength)
+                    )) + this.deselectedOpacityShift;
+                } else {
+                    return 0;
+                }
+            },
+
+            _designOpacityChanged() {
+                if (this.lines === undefined || this.deselectedOpacityMaster === undefined ||
+                    this.deselectedOpacityLength === undefined || this.deselectedOpacityShift === undefined) return;
+
+                let opacityFunction = this.deselectedOpacity.bind(this);
+                this.lines.forEach(line => d3
+                    .select(this.$.graphic.getElementById("l" + line.id))
+                    .attr("stroke-opacity", opacityFunction(line))
+                );
+            },
+
+            pointsChanged() {
+                if (this.points === undefined || this.features === undefined) {
+                    return;
+                }
+
+                let {lines, durations} = this.pointsToLines();
+                this.lines = lines; this.durations = durations;
+                this.maxLength = this.lines.map(l => l.length).max();
+
+                this.createSVG(this.lines);
+                this.updateNearestPatients();
+            },
+
+            pointsToLines: function() {
+                let points = this.points;
+
+                let lines = [];
+                let durations = {};
+
+                let pathLength = 0;
+
+                let lineTerminate = () => {
+                    let i = lines.length - 1;
+                    let remainingLength = pathLength;
+                    while (i >= 0 && (lines[i].next !== -1 || i === lines.length - 1)) {
+                        lines[i].stop2 = remainingLength / pathLength;
+                        remainingLength -= lines[i].length;
+                        lines[i].stop1 = remainingLength / pathLength;
+                        i--;
+                    }
+                };
+
+                for (let i = 0; i < points.length - 2; i++) {
+                    let a = points[i];
+                    let b = points[i + 1];
+
+                    if (lines.length > 0 && i > 0 && points[i - 1].next === a.id && a.next === b.id) {
+                        lines[lines.length - 1].next = lines.length;
+                    }
+
+                    if (a.next === b.id) {
+                        let line = {
+                            x1: a.x,
+                            y1: a.y,
+                            x2: b.x,
+                            y2: b.y,
+                            id: lines.length, // (length of lines array, not of this line)
+                            prev: -1,
+                            next: -1,
+                            time: a.time,
+                            died: a.attributes.died,
+                            patientId: a.patientId
+                        };
+                        line.length = Math.sqrt(
+                            Math.pow(line.x2 - line.x1, 2) +
+                            Math.pow(line.y2 - line.y1, 2)
+                        );
+                        pathLength += line.length;
+
+                        lines.push(line);
+
+                        a.line = lines[lines.length - 1];
+                        b.line = a.line;
+                        a.line.a = a;
+                        a.line.b = b;
+                    } else {
+                        lineTerminate();
+                        pathLength = 0;
+                    }
+
+                    if (lines.length > 0 && i > 0 && points[i - 1].next === a.id) {
+                        lines[lines.length - 1].prev = lines.length - 2;
+                    }
+
+                    durations[a.patientId] = a.time;
+                }
+
+                lineTerminate();
+
+                lines.forEach(l => {
+                   l.stop1Color = this.colorFromStop(l.stop1, l.died);
+                   l.stop2Color = this.colorFromStop(l.stop2, l.died);
+                });
+
+                return {lines, durations};
+            },
+
+            setLineAttrs(startLineData, lines, opacityFunction, width, strokeFunction) {
+                // console.log("highlight", startLineData, lines);
+                /**
+                 * @param lineData Object containing the data pertaining to the line segment to be modified
+                 * @param property Name of direction attribute to follow e.g. 'next' or 'prev'
+                 */
+                let selectLines = (lineData, property) => {
+                    // console.log(lineData);
+
+                    d3
+                        .select(this.linesDict[lineData.id])
+                        .attr("stroke-opacity", opacityFunction(lineData))
+                        .attr("stroke", p => strokeFunction(p))
+                        .attr("stroke-width", width);
+
+                    if (this.selectionMode !== "none") {
+                        if (width === 2.5 && this.highlightFeature !== undefined && this.highlightFeature !== null
+                            && this.highlightFeature !== "" && this.features[this.highlightFeature] !== undefined) {
+                            let featureIndex = this.features[this.highlightFeature];
+
+                            d3
+                                .select(this.linesDict[lineData.id])
+                                .attr("stroke-width", p =>{
+                                    let rank = this.ranker.rankValue(p.a.inputFeatures[featureIndex], featureIndex);
+                                    return rank * 6;
+                                });
+
+                            let mixColor = "white";
+                            d3.select(this.stops.starts[lineData.id])
+//                                .attr("stop-color", p => {
+//                                    let mix = this.ranker.rankValue(p.a.inputFeatures[featureIndex], featureIndex);
+//                                    return chroma.mix(mixColor, p.stop1Color, mix);
+//                                })
+//                                .attr("stop-color", p => {
+//                                    let mix = this.ranker.rankValue(p.a.inputFeatures[featureIndex], featureIndex);
+//
+//                                    let hsv = chroma(p.stop1Color).hsv();
+//                                    hsv[2] = mix;
+//                                    return chroma.hsv(hsv);
+//                                })
+                            ;
+                            d3.select(this.stops.ends[lineData.id])
+//                                .attr("stop-color", p => {
+//                                    let mix = this.ranker.rankValue(p.b.inputFeatures[featureIndex], featureIndex);
+//                                    return chroma.mix(mixColor, p.stop2Color, mix);
+//                                })
+//                                .attr("stop-color", p => {
+//                                    let mix = this.ranker.rankValue(p.b.inputFeatures[featureIndex], featureIndex);
+//
+//                                    let hsv = chroma(p.stop2Color).hsv();
+//                                    hsv[2] = mix;
+//                                    return chroma.hsv(hsv);
+//                                })
+                            ;
+                        } else {
+                            d3.select(this.stops.starts[lineData.id]).attr("stop-color", p => p.stop1Color);
+                            d3.select(this.stops.ends[lineData.id]).attr("stop-color", p => p.stop2Color);
+                        }
+                    }
+
+                    if (lineData[property] !== -1 && lines[lineData[property]].patientId === lineData.patientId) {
+                        selectLines(lines[lineData[property]], property)
+                    }
+                };
+
+                selectLines(startLineData, "next");
+                selectLines(startLineData, "prev");
+            },
+
+            strokeWidthFunction() {
+                return 1 / this.k;
+            },
+
+            colorFunction(p) {
+                let t = p.time;
+                let N = this.durations[p.patientId];
+                let died = p.died;
+
+                return this.colorFromStop(t / N, died);
+            },
+
+            colorFromStop(stop, died) {
+                let source, target;
+
+                let scales = new ColorScales();
+                if (died) {
+                    source = scales.deathSource;
+                    target = scales.deathTarget;
+                } else {
+                    source = scales.dischargeSource;
+                    target = scales.dischargeTarget;
+                }
+
+                let lab = [];
+                for (let i = 0; i < 3; i++) {
+                    lab.push(
+                        source[i] + stop * (target[i] - source[i])
+                    )
+                }
+
+                return chroma.lab(lab);
+            },
+
+            createSVG(lines) {
+                let opacityFunction = this.deselectedOpacity.bind(this);
+
+                this.k = 1;
+
+                let zoom = d3.zoom().scaleExtent([0.1, 1000]).on("zoom", () => {
+                    let t = d3.event.transform;
+                    this.k = t.k;
+
+                    d3
+                        .select("#group")
+                        .style("transform", `translate(${t.x}px, ${t.y}px) scale(${this.k})`);
+
+                    d3
+                        .selectAll("line")
+                        .attr("stroke-width", this.strokeWidthFunction.bind(this)())
+                        .attr("stroke-opacity", p => Math.pow(this.k, 0.3) * opacityFunction(p))
+                });
+
+                // TODO: Improve the efficiency of this
+                d3.select(this.$.graphic).selectAll("line").remove();
+
+                this.linesDict = {};
+                let linesDict = this.linesDict;
+
+                // Draw lines
+                let d3Lines = d3
+                    .select(this.$.graphic)
+                    .append("g")
+                    .attr("id", "zoom")
+                    .attr("width", 800)
+                    .attr("height", 800)
+//                    .call(zoom)
+                    .append("g").attr("id", "group").attr("width", 800).attr("height", 800)
+                    .selectAll("line")
+                    .data(lines)
+                    .enter()
+                    .append("line")
+                    .attr("id", function(p) {
+                        linesDict[p.id] = this;
+                        return "l" + p.id;
+                    })
+                    .attr("x1", p => p.x1)
+                    .attr("y1", p => p.y1)
+                    .attr("x2", p => p.x2)
+                    .attr("y2", p => p.y2)
+                    .attr("stroke", p => this.colorFunction(p))
+                    .attr("stroke-opacity", opacityFunction)
+                    .attr("stroke-width", 1);
+
+                if (this.selectionMode !== "none") {
+                    let gradients = d3
+                        .select(this.$.graphic)
+                        .append("defs")
+                        .selectAll("radialGradient")
+                        .data(lines)
+                        .enter()
+                        .append("radialGradient")
+                        .attr("id", p => `g${p.id}`)
+                        .attr("gradientUnits", "userSpaceOnUse")
+                        .attr("cx", p => p.x1)
+                        .attr("cy", p => p.y1)
+                        .attr("r", p => p.length);
+
+                    let makeGradient = (className, stopPercentage, stop, dict) =>
+                        gradients
+                            .append("stop")
+                            .attr("id", function(p) {
+                                dict.push(this);
+                                return `stop${p.id}${className}`
+                            })
+                            .attr("class", className)
+                            .attr("offset", `${stopPercentage}%`)
+                            .attr("stop-color", p => p[`${stop}Color`]);
+                    this.stops = {starts: [], ends: []};
+                    makeGradient("start", "0", "stop1", this.stops.starts);
+                    makeGradient("end", "100", "stop2", this.stops.ends);
+
+                    let polymer = this;
+                    if (this.selectionMode === "lines" || this.selectionMode === "hybrid") {
+                        d3Lines
+                            .on("mouseenter", function(p) {
+                                let size = polymer.$.graphic.getBoundingClientRect();
+
+                                // Move this line segment to the front.
+                                // TODO: If we want to do this, move all segments for this line to the front.
+                                // TODO: Also keep all circles on top, and think about moving all these segments
+                                // TODO:  backwards on mouseleave.
+                                // this.parentNode.appendChild(this);
+
+                                let mousePoint = {
+                                    x: d3.mouse(this)[0] / size.width * 800,
+                                    y: d3.mouse(this)[1] / size.height * 800
+                                };
+
+                                let distanceToPatient = patient =>
+                                    Math.pow(mousePoint.x - patient.x, 2) + Math.pow(mousePoint.y - patient.y, 2);
+
+                                let distanceToA = distanceToPatient(p.a);
+                                let distanceToB = distanceToPatient(p.b);
+                                let closerPoint = distanceToA < distanceToB ? p.a : p.b;
+
+                                polymer.highlightedPatient = closerPoint;
+                            })
+                            .on("mouseleave", () => polymer.highlightedPatient = null);
+                    }
+                    if (this.selectionMode === "points" || this.selectionMode === "hybrid") {
+                        // Draw invisible rects which act as mouseover targets for viewing lines
+                        this.pointSensors = {};
+                        this.sensorSize = 7;
+                        let size = this.sensorSize;
+                        d3
+                            .select(this.$.graphic)
+                            .select("#group")
+                            .selectAll("rect")
+                            .data(this.points)
+                            .enter()
+                            .append("rect")
+                            .attr("id", function(p) {
+                                polymer.pointSensors[p.id] = this;
+                                return "ps" + p.id;
+                            })
+                            .attr("fill-opacity", 0)
+                            .attr("x", p => p.x - size / 2)
+                            .attr("y", p => p.y - size / 2)
+                            .attr("width", size)
+                            .attr("height", size)
+                            .on("mouseenter", p => polymer.highlightedPatient = p)
+                            .on("mouseleave", () => polymer.highlightedPatient = null);
+                    }
+                }
+            },
+
+            enablePointSensor(id) {
+                if (this.pointSensors !== undefined) {
+                    let sensor = this.pointSensors[id];
+                    sensor.width = this.sensorSize;
+                    sensor.height = this.sensorSize;
+                }
+            },
+
+            disablePointSensor(id) {
+                if (this.pointSensors !== undefined) {
+                    let sensor = this.pointSensors[id];
+                    d3.select(sensor)
+                        .attr("width", 0)
+                        .attr("height", 0);
+                }
+            },
+
+            hiddenPatientsChanged() {
+                if (this.lines === undefined) return;
+
+                let lineHandles = this.lines.distinctBy(p => p.patientId);
+                lineHandles.forEach(lh => {
+                    if (this.hiddenPatients.includesWhere(hp => hp === lh.patientId)) {
+                        this.setLineAttrs(lh, this.lines, () => 0, () => 0, () => 0);
+                    } else {
+                        this.setLineAttrs(lh, this.lines, this.deselectedOpacity.bind(this),
+                            this.strokeWidthFunction.bind(this)(), this.colorFunction.bind(this));
+                    }
+                });
+
+                this.points.forEach(point => {
+                    if (this.hiddenPatients.includesWhere(hp => hp === point.patientId)) {
+                        this.disablePointSensor(point.id);
+                    } else {
+                        this.enablePointSensor(point.id);
+                    }
+                });
+
+                this.updateNearestPatients();
+            },
+
+            highlightedPatientChanged(newHighlighted, oldHighlighted) {
+                if (oldHighlighted !== null && oldHighlighted !== undefined) {
+                    this.deselectLine(oldHighlighted);
+                }
+                if (newHighlighted !== null) {
+                    this.selectLine(newHighlighted);
+                }
+            },
+
+            selectLine(p) {
+                this.setLineAttrs(p.line, this.lines, () => 1.0, 4.0, x => `url(#g${x.id})`);
+                d3.select(`#nearestCircle${p.patientId}outer`).attr("r", 1.5 * this.outerCircleRadius(p));
+                d3.select(`#nearestCircle${p.patientId}inner`).attr("r", 1.5 * this.innerCircleRadius(p));
+            },
+
+            deselectLine(p) {
+                if (p.hasOwnProperty("line")) p = p.line;
+
+                if (this.nearestPatients !== undefined && this.nearestPatients !== null &&
+                    this.nearestPatients.count(x => x.patientId === p.patientId) > 0) {
+                    // If deselecting a nearest patient line:
+                    this.setLineAttrs(p, this.lines, () => 1.0, 2.5, x => `url(#g${x.id})`);
+
+                    d3.select(`#nearestCircle${p.patientId}outer`).attr("r", this.outerCircleRadius);
+                    d3.select(`#nearestCircle${p.patientId}inner`).attr("r", this.innerCircleRadius);
+                } else {
+                    this.setLineAttrs(p, this.lines, this.deselectedOpacity.bind(this),
+                        this.strokeWidthFunction.bind(this)(), this.colorFunction.bind(this));
+                }
+            },
+
+            highlightFeatureChanged() {
+                if (this.nearestPatients !== undefined) {
+                    this.nearestPatients.forEach((p) =>
+                        this.setLineAttrs(p.line, this.lines, () => 0.8, 2.5, (p) => `url(#g${p.id})`));
+                }
+            },
+
+            innerCircleRadius(p) {
+                if (p.dissimilarity < 0.1) return 0;
+
+                let L = 1; // max value
+                let k = 1; // curve "steepness"
+                let x0 = 3; // curve midpoint
+                let x = p.dissimilarity;
+                let score = L / (1 + Math.exp(-k * (x - x0)));
+                return Math.max(0, 3.5 * score);
+            },
+
+            outerCircleRadius() {
+                return 4;
+            },
+
+            drawSimilarityCircles(locations) {
+                d3
+                    .select(this.$.graphic)
+                    .select("#group")
+                    .selectAll("g").remove();
+                let circle = d3
+                    .select(this.$.graphic)
+                    .select("#group")
+                    .selectAll("g")
+                    .data(locations)
+                    .enter()
+                    .append("g");
+                circle
+                    .append("circle")
+                    .attr("cx", p => p.x)
+                    .attr("cy", p => p.y)
+                    .attr("fill", "black")
+                    .attr("id", p => `nearestCircle${p.patientId}outer`)
+                    .attr("r", this.outerCircleRadius);
+                circle
+                    .append("circle")
+                    .attr("cx", p => p.x)
+                    .attr("cy", p => p.y)
+                    .attr("fill", "white")
+                    .attr("id", p => `nearestCircle${p.patientId}inner`)
+                    .attr("r", this.innerCircleRadius);
+                circle
+                    .on("mouseenter", p => this.highlightedPatient = p)
+                    .on("click", () => {
+//                        this.queryPatient = this.queryPatient.map((q, i) => (
+//                            {
+//                                data: (() => {
+//                                    let d = Math.round(10 * this.highlightedPatient[i]) / 10;
+//                                    if (d > 100) d = Math.round(d);
+//                                    return d;
+//                                })(),
+//                                highlight: undefined,
+//                                name: q.name,
+//                                secondary: [undefined],
+//                                step: q.step,
+//                                values: q.values
+//                            }
+//                        ));
+//                        this.highlightedPatient = null;
+                    })
+                    .on("mouseleave", () => this.highlightedPatient = null)
+            },
+
+            updateNearestPatients() {
+                if (this.points === undefined) return;
+
+                if (this.nearestPatients !== undefined) {
+                    this.nearestPatients.forEach(p => this.setLineAttrs(
+                        p.line, this.lines, this.deselectedOpacity.bind(this), 1, p => this.colorFunction(p)));
+                    this.nearestPatients.forEach(p => {
+                        console.log("pre", p);
+                        delete p.dissimilarity;
+                        console.log("post", p);
+                    });
+                    console.log("np", this.nearestPatients);
+                    this.nearestPatients = undefined;
+                }
+
+                if (this.queryPatient === undefined || this.queryPatient === null ||
+                    this.queryPatient[0] === undefined) {
+                    d3.select(this.$.graphic).select("#group").selectAll("circle").data([]).exit().remove();
+                    return;
+                }
+
+                // TODO: Add an additional entry to queryPatient with the current ICM process?
+                let closestPatients =
+                    this.findNearestPatients(this.queryPatient, this.points, this.nearestCount);
+
+                closestPatients.forEach((p) =>
+                    this.setLineAttrs(p.line, this.lines, () => 1.0, 2.5, (p) => `url(#g${p.id})`));
+                this.drawSimilarityCircles(closestPatients);
+                this.nearestPatients = [];
+                this.nearestPatients = closestPatients;
+            },
+
+            nearestInc: 0,
+            findNearestPatients(patientArr, patients, n) {
+                let distance = (q, p) => q
+                    .zipWith(p)
+                    .map(([qv, pv], i) => {
+                        if (!this.featureProperties[i].includeInSimilarity) {
+                            return 0;
+                        } else if (this.featureProperties[i].type === "cardinal") {
+                            return qv === pv ? 0.0 : this.cardinalDistance;
+                        } else {
+                            return Math.pow(this.scaler.scaleValue(qv, i) - pv, 2);
+                        }
+                    })
+                    .sum();
+
+                console.log("Nearest #" + this.nearestInc++);
+                return patients
+                    .filter(p => p.time == patientArr[this.features["Time Step"]])
+                    .filter(p => this.hiddenPatients === undefined ? true : !this.hiddenPatients.includes(p.patientId))
+                    .map(p => [distance(patientArr, p.inputFeatures), p]) // TODO: Add last element of patientArr to p.attributes.icm-something.
+                    .sort((a, b) => a[0] - b[0])
+                    .take(n)
+                    .map(([d, p]) => [Math.sqrt(d), p])
+                    .effect(l => l.forEach(([d, p]) => {
+                        let search = (pt, direction) => {
+                            pt.dissimilarity = d;
+
+                            if (pt[direction] !== -1) search(patients[pt[direction]], direction);
+                        };
+
+                        search(p, "prev");
+                        search(p, "next");
+                    }))
+                    .map(([d, p]) => p);
+            },
+        });
+    </script>
+</dom-module>

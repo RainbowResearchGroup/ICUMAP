@@ -1,0 +1,187 @@
+<link rel="import" href="../../../bower_components/polymer/polymer.html">
+<link rel="import" href="../../../bower_components/iron-flex-layout/iron-flex-layout-classes.html">
+<link rel="import" href="patient-card.html">
+
+<dom-module id="card-tray">
+    <template>
+        <style include="iron-flex iron-flex-alignment"></style>
+        <style>
+            :host {
+                display: block;
+            }
+
+            #holder {
+                width: 100%;
+                height: 100%;
+                padding: 10px 0 0 16px;
+                margin-bottom: -5px;
+                margin-right: 0;
+                overflow: hidden;
+            }
+
+            papworth-card {
+                margin-left: -4px;
+                margin-right: -4px;
+            }
+
+            #scrollableHolder, #scrollableHolderHolder {
+                overflow-x: scroll;
+                overflow-y: hidden;
+            }
+
+            #holder::-webkit-scrollbar, #scrollableHolder::-webkit-scrollbar,
+            #scrollableHolderHolder::-webkit-scrollbar {
+                display: none;
+            }
+
+            #end-filler { /* TODO: Figure out a way of assigning styles such that this isn't needed */
+                min-width: 28px;
+            }
+
+            #fixedHolder {
+                /*transition: box-shadow 0.28s cubic-bezier(0.4, 0, 0.2, 1);*/
+                z-index: 2;
+            }
+
+            .right-shadow {
+                box-shadow: 6px 0 4px -4px rgba(0,0,0,.3);
+            }
+
+            .card-label {
+                margin-left: 7px;
+                margin-bottom: -4px;
+            }
+        </style>
+
+        <div id="holder" class="layout horizontal">
+            <div id="fixedHolder" class="layout horizontal">
+                <div hidden$="[[!showQuery]]">
+                    <div class="card-label">Current Patient</div>
+                    <patient-card patient="[[queryPatient]]"></patient-card>
+                </div>
+                <div hidden$="[[!showHighlighted]]">
+                    <div class="card-label">Highlighted Patient</div>
+                    <patient-card id="highlightedCard" patient="[[highlightedPatient]]"></patient-card>
+                </div>
+            </div>
+            <div id="scrollableHolderHolder" hidden$="[[!hasSimilar(nearestPatients)]]">
+                <div class="card-label">Similar Patients</div>
+                <div id="scrollableHolder" class="layout horizontal" on-scroll="scrolled">
+                    <template id="cardRepeater" is="dom-repeat" items="[[nearestPatients]]" as="patient">
+                        <patient-card on-mouseenter="cardEnter" on-mouseleave="cardLeave"
+                                       patient="[[patient]]" id="card[[patient.patientId]]"></patient-card>
+                    </template>
+                    <div id="end-filler"></div>
+                </div>
+            </div>
+        </div>
+    </template>
+    <script src="card-tray-scroll-polyfill.js"></script>
+    <script>
+        Polymer({
+            is: 'card-tray',
+
+            properties: {
+                nearestPatients: {
+                    type: Array,
+                    value: [],
+                    observer: "nearestPatientsChanged"
+                },
+                highlightedPatient: {
+                    type: Array,
+                    notify: true,
+                    observer: "highlightedPatientChanged"
+                },
+                queryPatient: {
+                    type: Array,
+                    observer: "recomputeHighlightDissimilarity"
+                },
+                showQuery: {
+                    type: Boolean,
+                    value: true
+                },
+                showHighlighted: {
+                    type: Boolean,
+                    value: true
+                }
+            },
+
+            ready() {
+                this.highlightedPatientUpdatedByThis = false;
+
+                this.$.scrollableHolder.addEventListener("wheel", event => {
+                    if (event.deltaMode === 0) {
+                        //noinspection JSSuspiciousNameCombination
+                        // (because mapping vertical mouse wheel to horizontal scroll)
+                        this.$.scrollableHolder.scrollLeft += 0.5 * event.deltaY;
+                    }
+                });
+            },
+
+            hasSimilar(nearestPatients) {
+                return nearestPatients !== undefined && nearestPatients !== null
+                    && nearestPatients.hasOwnProperty("length") && nearestPatients.length > 0;
+            },
+
+            cardEnter(event) {
+//                event.target.setAttribute("highlighted", true);
+                this.highlightedPatientUpdatedByThis = true;
+                this.highlightedPatient = this.$.cardRepeater.itemForElement(event.target);
+                this.enterEvent = event;
+            },
+
+            cardLeave(event) {
+                event.target.removeAttribute("highlighted");
+                this.highlightedPatient = null;
+                this.enterEvent = undefined;
+            },
+
+            nearestPatientsChanged() {
+                this.$.holder.scrollLeft = 0;
+                this.scrolled();
+                window.requestAnimationFrame(() => {
+                    if (this.enterEvent !== undefined) {
+                        this.cardEnter(this.enterEvent);
+                    }
+                })
+            },
+
+            scrolled() {
+                if (this.$.scrollableHolder.scrollLeft === 0) {
+                    this.$.fixedHolder.classList.remove("right-shadow");
+                } else {
+                    this.$.fixedHolder.classList.add("right-shadow");
+                }
+            },
+
+            highlightedPatientChanged() {
+                if (this.highlightedPatient === null || this.nearestPatients === undefined) {
+                    return;
+                }
+
+                this.$.highlightedCard.style.visibility = "visible";
+                this.nearestPatients.forEach(np => {
+                    let card = this.$$(`#card${np.patientId}`);
+                    if (np.patientId === this.highlightedPatient.patientId) {
+                        this.$.highlightedCard.style.visibility = "hidden";
+
+                        card.setAttribute("highlighted", true);
+                        if (!this.highlightedPatientUpdatedByThis) {
+                            card.scrollIntoView({behavior: 'smooth'});
+                        }
+                    } else {
+                        card.removeAttribute("highlighted");
+                    }
+                });
+
+                this.highlightedPatientUpdatedByThis = false;
+
+                this.recomputeHighlightDissimilarity();
+            },
+
+            recomputeHighlightDissimilarity() {
+                // console.log("qp", this.queryPatient);
+            }
+        });
+    </script>
+</dom-module>
